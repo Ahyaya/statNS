@@ -39,6 +39,10 @@ struct EoS_t {
 	char FilePath[128];
 };
 
+struct EoSpath_t {
+	char FilePath[128];
+};
+
 struct CompactStar_t {
 	double P;
 	double r;
@@ -82,9 +86,11 @@ struct auxSpace_t {
 };
 
 struct fmodeParams_t {
-	double RhocSI;
-	struct CompactStar_t *Results;
-	struct auxSpace_t *auxSpace;
+        double RhocSI;
+        double fM;
+        struct CompactStar_t *Results;
+        struct auxSpace_t *auxSpace;
+        struct EoS_t *EoS;
 };
 
 int dFunc(struct RungeKutta_Array_t *K, double r, struct RungeKutta_Array_t *X);
@@ -128,3 +134,21 @@ double DW(double r,double W,double A,double gamma,double p,double B,double X,dou
 double DX(double r,double X,double e,double p,double B,double Dv,double H0,double w,double H1,double K,double V,double A,double F,double W);
 double H0f(double r,double B,double X,double m,double p,double A,double H1,double K,double w);
 double Vf(double r,double w,double e,double p,double B,double A,double Dp,double W,double H0,double X);
+
+/*
+ * Function for fm part
+ * EoS is no longer given as global var in this part
+ * all function need to specify address of EoS instead.
+ * This frame is optimized for multi-EoS computation.
+ */
+double gf_fm(struct EoS_t *EoS, double e);
+double interp_p2rho_fm(struct EoS_t *EoS, double cp);
+double interp_rho2p_fm(struct EoS_t *EoS, double crho);
+int loadEoS_mt(struct EoS_t *EoS, char *Path);
+double getM_fm(double RhocSI, struct EoS_t *EoS);
+double getMmax_fm(struct EoS_t *EoS);
+double M2Rhoc_fm(double fM, struct EoS_t *EoS);
+int fmode_fm(struct EoS_t *EoS, double RhocSI, struct CompactStar_t *Results, struct auxSpace_t *auxSpace);
+void * m2fmodeGate_fm(void *args);
+int m2fmode_fm(int threadNum, struct CompactStar_t *Results, double fM, struct EoSpath_t *EoSlist, int EoSlistLen);
+

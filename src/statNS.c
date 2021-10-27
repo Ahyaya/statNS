@@ -887,3 +887,525 @@ int fmode_mt(int threadNum, struct CompactStar_t *Results, double *cdenArray, in
 	fmode_mt(threadNum,&Results[section],&cdenArray[section],arrayLen-section);
 	return 0;
 }
+
+
+/*Function for fm*/
+
+double gf_fm(struct EoS_t *EoS, double e){
+	double le, p, gamma;
+	int i=EoS->length-1;
+	e=e/G*c*c;
+	le=log10(e);
+	for(;i>0;i--){
+  		if(le>EoS->lgRho_SI[i-1]){
+    		p=EoS->lgP_SI[i-1]*(le-EoS->lgRho_SI[i])/(EoS->lgRho_SI[i-1]-EoS->lgRho_SI[i])+EoS->lgP_SI[i]*(le-EoS->lgRho_SI[i-1])/(EoS->lgRho_SI[i]-EoS->lgRho_SI[i-1]);
+    		p=pow(10,p);
+    		gamma=(e+p/c/c)/e*(EoS->lgP_SI[i]-EoS->lgP_SI[i-1])/(EoS->lgRho_SI[i]-EoS->lgRho_SI[i-1]);
+    		return(gamma);
+		}
+	}
+	return((pow(10,EoS->lgRho_SI[0])+pow(10,EoS->lgP_SI[0])/c/c)/e*(EoS->lgP_SI[i]-EoS->lgP_SI[i-1])/(EoS->lgRho_SI[i]-EoS->lgRho_SI[i-1]));
+}
+
+double interp_p2rho_fm(struct EoS_t *EoS, double cp) {
+    double logp=log10(cp),logrho,crho;
+    int n=EoS->length-1;
+    for(;n>0;n--){
+        if(logp>EoS->lgP_SI[n-1]){
+            logrho=(logp-EoS->lgP_SI[n-1])*(EoS->lgRho_SI[n]-EoS->lgRho_SI[n-1])/(EoS->lgP_SI[n]-EoS->lgP_SI[n-1])+EoS->lgRho_SI[n-1];
+            crho=pow(10,logrho);
+            return(crho);
+        }
+    }
+    fprintf(stderr,"%s meet small pressure at interp_p2rho_fm()\n", EoS->FilePath);
+    return 0;
+}
+
+double interp_rho2p_fm(struct EoS_t *EoS, double crho) {
+    double logp,logrho=log10(crho),cp;
+    int n=EoS->length-1;
+    for(;n>0;n--){
+        if(logrho>EoS->lgRho_SI[n-1]){
+            logp=(logrho-EoS->lgRho_SI[n-1])*(EoS->lgP_SI[n]-EoS->lgP_SI[n-1])/(EoS->lgRho_SI[n]-EoS->lgRho_SI[n-1])+EoS->lgP_SI[n-1];
+            cp=pow(10,logp);
+            return(cp);
+        }
+    }
+    fprintf(stderr,"%s meet small density at interp_rho2p_fm()\n", EoS->FilePath);
+    return 0;
+}
+
+int loadEoS_mt(struct EoS_t *EoS, char *Path) {
+    FILE *inf;
+    int n;
+
+    if((inf=fopen(Path,"r"))==NULL) {
+        fprintf(stderr,"cannot open %s\n",Path);
+        return -1;
+    }
+    sprintf(EoS->FilePath,"%s",Path);
+    EoS->length=0;
+    while(fscanf(inf,"%lf",&EoS->lgRho_SI[EoS->length])==1) {
+        fscanf(inf,"%lf%*[^\n]",&EoS->lgP_SI[EoS->length]);
+        EoS->length++;
+    }
+    fclose(inf);
+    EoS->RhomaxSI=pow(10,EoS->lgRho_SI[EoS->length-1]);
+    EoS->RhominSI=pow(10,EoS->lgRho_SI[0]);
+
+    for(n=0;n<EoS->length;n++) {
+        EoS->lgRho[n]=EoS->lgRho_SI[n]-10.175607290470733;
+        EoS->lgP[n]=EoS->lgP_SI[n]-27.129849799910058;
+    }
+    EoS->Pmax=pow(10,EoS->lgP[EoS->length-1]);
+    EoS->Pmin=pow(10,EoS->lgP[0]);
+    EoS->Rhomax=pow(10,EoS->lgRho[EoS->length-1]);
+    EoS->Rhomin=pow(10,EoS->lgRho[0]);
+    return 0;
+}
+
+double getM_fm(double RhocSI, struct EoS_t *EoS){
+    double dr=0.5;
+    double r,p,e,m,m1,m2,m3,m4,p1,p2,p3,p4,p_surf;
+    int pf;
+
+    p_surf=pow(10,EoS->lgP_SI[0]);
+    r=1.0;
+    e=RhocSI;
+    p=interp_rho2p_fm(EoS,e);
+    m=1.333333333333333*r*r*pi*e*r;
+
+    for(pf=0;p>p_surf;r+=dr,pf++){
+        if(pf>49995){
+            return 0;
+        }
+
+        p1=fp(r,p,e,m);
+        m1=fm(r,e);
+        if((p+dr*p1/2)>p_surf) e=interp_p2rho_fm(EoS,p+dr*p1/2); else break;
+        p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
+        m2=fm(r+dr/2,e);
+        if((p+dr*p2/2)>p_surf) e=interp_p2rho_fm(EoS,p+dr*p2/2); else break;
+        p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
+        m3=fm(r+dr/2,e);
+        if((p+dr*p3)>p_surf) e=interp_p2rho_fm(EoS,p+dr*p3); else break;
+        p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
+        m4=fm(r+dr,e);
+        p=p+dr*(p1+2*p2+2*p3+p4)/6;
+        e=interp_p2rho_fm(EoS,p);
+        m=m+dr*(m1+2*m2+2*m3+m4)/6;
+    }
+    return m/Msun;
+}
+
+double getMmax_fm(struct EoS_t *EoS) {
+    int n;
+    double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=1e12;
+
+    E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
+    E0=E1-dE;
+    m1=getM_fm(E1, EoS);
+    m0=getM_fm(E0, EoS);
+    if(m0-m1<=0) {
+        EoS->Rhoc_MmaxSI=E1;
+        EoS->Mmax=m1;
+        return m1;
+    }
+    for(n=0;n<7;n++) {
+        E1=E1*0.72;
+        E0=E1-dE;
+        m1=getM_fm(E1, EoS);
+        m0=getM_fm(E0, EoS);
+        if(m0-m1<=0) break;
+    }
+    if(m0-m1>0) {
+        EoS->Rhoc_MmaxSI=E0;
+        EoS->Mmax=m0;
+        return m0;
+    }
+    Ea=E1;Eb=E1*1.3888888888889;
+    Ec=Ea+0.382*(Eb-Ea);
+    Ed=Eb-Ec+Ea;
+    mc=getM_fm(Ec,EoS);
+    md=getM_fm(Ed,EoS);
+    for(n=0;n<15;n++) {
+        if(mc-md>0) {
+            Eb=Ed;mb=md;
+            Ed=Ec;md=mc;
+            Ec=Ea+0.382*(Eb-Ea);
+            mc=getM_fm(Ec,EoS);
+        }else{
+            Ea=Ec;ma=mc;
+            Ec=Ed;mc=md;
+            Ed=Ea+0.618*(Eb-Ea);
+            md=getM_fm(Ed,EoS);
+        }
+    }
+    EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
+    EoS->Mmax=getM_fm(EoS->Rhoc_MmaxSI,EoS);
+    return(EoS->Mmax);
+}
+
+double M2Rhoc_fm(double fM, struct EoS_t *EoS) {
+    double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
+    int n;
+    Mmax=getMmax_fm(EoS);
+    Mmin=getM_fm(5e17,EoS);
+    if(Mmax-fM<0) return EoS->Rhoc_MmaxSI;
+    if(Mmin>fM) {
+        fprintf(stderr,"error: attempt to find a low mass neutron star! EoS path: %s Mmax=%lf\n", EoS->FilePath, EoS->Mmax);
+        return 5e17;
+    }
+    E0=5e17;E2=EoS->Rhoc_MmaxSI;m0=Mmin;m2=Mmax;
+    for(n=0;n<25;n++) {
+        E1=E2-(m2-fM)*(E2-E0)/(m2-m0);
+        m1=getM_fm(E1,EoS);
+        if(m1-fM<0){
+            E0=E1;m0=m1;
+        }else{
+            E2=E1;m2=m1;
+        }
+    }
+    return(E0+(E2-E0)*(fM-m0)/(m2-m0));
+}
+
+int fmode_fm(struct EoS_t *EoS, double RhocSI, struct CompactStar_t *Results, struct auxSpace_t *auxSpace){
+	double dr=0.5;
+	double r,r0=1,R,RR,drx,rx;
+	double ne,p,e,m,mR,A,B=1.0,BR,Bfactor,m1,m2,m3,m4,p1,p2,p3,p4,B1,B2,B3,B4,pressure,I=0,J,DDf,Df=0,f=1;
+	double H1,H0,K,W,X,F,V,Dv,gamma,Dp,N;
+	double DH11,DK1,DW1,DX1,H01,H02,K1,K2,x,X1,X2,Xp1,Xp2,W1,W2,V1,V2,V01,V02,V0;
+	double w,wcheck,o[2],wi,aR,bR,gR,hR,kR,n,Y1,Y2,Z,DZ,DDZ,VZ,Ar1,Ar2,Ai1,Ai2,ar,ai,Ar[2],Ai[2],Br[2],Bi[2];
+	int t,q,wpf,rpf,pfEnd,n4,status=0;
+
+	double *mfile,*pfile,*rhofile,*Bfile,*Bcor,*Wfile,*Wfile1,*Wfile2,*Vfile,*Vfile1,*Vfile2;
+	mfile=auxSpace->mfile;
+	pfile=auxSpace->pfile;
+	rhofile=auxSpace->rhofile;
+	Bfile=auxSpace->Bfile;
+	Bcor=auxSpace->Bcor;
+	Wfile=auxSpace->Wfile;
+	Wfile1=auxSpace->Wfile1;
+	Wfile2=auxSpace->Wfile2;
+	Vfile=auxSpace->Vfile;
+	Vfile1=auxSpace->Vfile1;
+	Vfile2=auxSpace->Vfile2;
+	
+	pressure=pow(10,EoS->lgP_SI[0]);
+	r=r0;
+	ne=RhocSI;
+	e=RhocSI;
+	p=interp_rho2p_fm(EoS,e);
+	m=1.3333333*r*r*pi*e*r;
+	wpf=-1;
+	for(;p>pressure;r=r+dr){
+		if(wpf>49995){
+			Results->Rho=RhocSI;
+			Results->M=0;
+			Results->r=0;
+			Results->freq=0;
+			Results->dampTime=0;
+			status=1;
+			goto funcExit;
+		}
+		wpf++;
+		rhofile[wpf]=e*Gc2;   /*-- e,p,m in G=c=1 --*/
+		pfile[wpf]=p*Gc4;
+		Bfile[wpf]=B;
+		mfile[wpf]=m*Gc2;
+		A=1/(1-2*m*Gc2/r);
+		p1=fp(r,p,e,m);
+		m1=fm(r,e);
+		if((p+dr*p1/2)>pressure) e=interp_p2rho_fm(EoS,p+dr*p1/2); else break;
+		B1=Bf(r,p,m,B);
+		p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
+		m2=fm(r+dr/2,e);
+		if((p+dr*p2/2)>pressure) e=interp_p2rho_fm(EoS,p+dr*p2/2); else break;
+		B2=Bf(r+dr/2,p+dr*p1/2,m+dr*m1/2,B+dr*B1/2);
+		p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
+		m3=fm(r+dr/2,e);
+		if((p+dr*p3)>pressure) e=interp_p2rho_fm(EoS,p+dr*p3); else break;
+		B3=Bf(r+dr/2,p+dr*p2/2,m+dr*m2/2,B+dr*B2/2);
+		p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
+		m4=fm(r+dr,e);
+		B4=Bf(r+dr,p+dr*p3,m+dr*m3,B+dr*B3);
+		J=-4*pi*(e+p/c/c)*Gc2*r*A;
+		DDf=-(4/r*Df+J*Df+4/r*J*f);
+		I=I-2.0/3*f*J/sqrt(A*B)*r*r*r*dr;
+		p=p+dr*(p1+2*p2+2*p3+p4)/6;
+		e=interp_p2rho_fm(EoS,p);
+		m=m+dr*(m1+2*m2+2*m3+m4)/6;
+		B=B+dr*(B1+2*B2+2*B3+B4)/6;
+		f=f+Df*dr;
+		Df=Df+DDf*dr;
+	}
+	pfEnd=wpf;
+	R=r;
+	mR=m*Gc2;
+	BR=1-2*Gc2*m/r;
+	Bfactor=BR/B;
+	gamma=(EoS->lgP_SI[1]-EoS->lgP_SI[0])/(EoS->lgRho_SI[1]-EoS->lgRho_SI[0]);
+	N=1/(gamma-1);
+	RR=R-(N+1)*(p-dr*(p1+2*p2+2*p3+p4)/6)/(p1+2*p2+2*p3+p4)*6;
+	wpf=-1;
+	rpf=-1;
+	for(n4=0;n4<pfEnd+1;n4++){
+		Bcor[n4]=Bfile[n4]*Bfactor;
+	}
+	I=I/sqrt(Bfactor);
+	I=I/(f+2*I/r/r/r)/Gc2;
+	I=m*sqrt(m/I)*Gc2;
+	o[0]=(-0.0047+0.133*I+0.575*I*I)/mR-0.1e-5;
+	o[1]=o[0]+0.2e-5;
+	q=1;
+	wcheck=0;
+	for(t=0;;t++){
+		if(t>20){
+			Results->Rho=RhocSI;
+			Results->M=0;
+			Results->r=0;
+			Results->freq=0;
+			Results->dampTime=0;
+			status=2;
+			goto funcExit;
+		}
+		w=t?o[q]:o[t];
+		e=rhofile[0];
+		p=pfile[0];
+		B=Bcor[0];
+		W=1.0;
+		K=(e+p);
+		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/2)*W+0.5*K);
+		H1=(2*K+16*pi*(e+p)*W)/3;
+		rpf=-1;
+		wpf=-1;
+		r=r0;
+		while(rpf<pfEnd){
+			rpf++;
+			p=pfile[rpf];
+			e=rhofile[rpf];
+			B=Bcor[rpf];
+			m=mfile[rpf];
+			Dp=-(e+p)*(m+4*pi*r*r*r*p)/r/r/(1-2*m/r);
+			Dv=-2*Dp/(e+p);
+			A=1/(1-2*m/r);
+			gamma=gf_fm(EoS,e);
+			H0=H0f(r,B,X,m,p,A,H1,K,w);
+			V=Vf(r,w,e,p,B,A,Dp,W,H0,X);
+			if(r==r0)V01=V;
+			if(fabs((wcheck-w)/w)<Cri){
+				wpf++;
+				Wfile[wpf]=sqrt(1-2*m/r)*W;
+				Vfile[wpf]=V;
+			}
+			F=Ff(r,A,e,p,m,Dp);
+			DH11=DH1(r,m,A,p,e,H1,H0,K,V);
+			DK1=DK(r,H0,H1,Dv,K,e,p,A,W);
+			DW1=DW(r,W,A,gamma,p,B,X,V,H0,K);
+			DX1=DX(r,X,e,p,B,Dv,H0,w,H1,K,V,A,F,W);
+			H1=H1+DH11*dr;
+			K=K+DK1*dr;
+			W=W+DW1*dr;
+			X=X+DX1*dr;
+			r=r+dr;
+		}
+		wpf=-1;
+		rpf=-1;
+		X1=X;Xp1=DX1;K1=K;H01=H0f(r,B,X,m,p,A,H1,K,w);W1=W;V1=V;
+		p=pfile[0];
+		e=rhofile[0];
+		B=Bcor[0];
+		W=1.0;K=-(e+p);
+		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/2.0)*W+0.5*K);
+		H1=(4.0*K+16*pi*(e+p)*W)/6.0;
+		r=r0;
+		while(rpf<pfEnd){
+			rpf++;
+			p=pfile[rpf];
+			e=rhofile[rpf];
+			B=Bcor[rpf];
+			m=mfile[rpf];
+			Dp=-(e+p)*(m+4*pi*r*r*r*p)/r/r/(1-2*m/r);
+			Dv=-2*Dp/(e+p);
+			A=1/(1-2*m/r);
+			gamma=gf_fm(EoS,e);
+			H0=H0f(r,B,X,m,p,A,H1,K,w);
+			V=Vf(r,w,e,p,B,A,Dp,W,H0,X);
+			if(r==r0)V02=V;
+			if((wcheck-w)/w>-Cri&&(wcheck-w)/w<Cri){
+				wpf++;
+				Wfile[wpf]=sqrt(1-2*m/r)*W;
+				Vfile[wpf]=V;
+			}
+			F=Ff(r,A,e,p,m,Dp);
+			DH11=DH1(r,m,A,p,e,H1,H0,K,V);
+			DK1=DK(r,H0,H1,Dv,K,e,p,A,W);
+			DW1=DW(r,W,A,gamma,p,B,X,V,H0,K);
+			DX1=DX(r,X,e,p,B,Dv,H0,w,H1,K,V,A,F,W);
+			H1=H1+DH11*dr;
+			K=K+DK1*dr;
+			W=W+DW1*dr;
+			X=X+DX1*dr;
+			r=r+dr;
+		}
+		wpf=-1;
+		rpf=-1;
+		X2=X;Xp2=DX1;K2=K;H02=H0f(r,B,X,m,p,A,H1,K,w);W2=W;V2=V;
+		x=-(X1-(RR-R)/(N+1)*Xp1)/(X2-(RR-R)/(N+1)*Xp2);
+		H0=H01+x*H02; K=K1+x*K2; W=W1+x*W2; V=V1+x*V2;V0=V01+x*V02;
+		if(fabs((wcheck-w)/w)<Cri){
+			r=r0;
+			while(rpf<pfEnd){
+				rpf++;
+				W1=Wfile1[rpf];
+				W2=Wfile2[rpf];
+				W=W1+x*W2;
+				wpf++;
+				Wfile[wpf]=W/(1+x);
+				V1=Vfile1[rpf];
+				V2=Vfile2[rpf];
+				V=V1+x*V2;
+				Vfile[wpf]=V/V0;
+				r=r+dr;
+			}
+			break;
+		}
+		wcheck=w;
+		n=1.5;
+		aR=-(n*R+3*mR)/(w*w*R*R-(n+1)*mR/R);
+		bR=(n*R*(R-2*mR)-w*w*R*R*R*R+mR*(R-3*mR));
+		bR=bR/(R-2*mR)/(w*w*R*R-(n+1)*mR/R);
+		gR=n*(n+1)*R*R+3*n*mR*R+6*mR*mR;
+		gR=gR/R/R/(n*R+3*mR);
+		hR=-n*R*R+3*n*mR*R+3*mR*mR;
+		hR=hR/(R-2*mR)/(n*R+3*mR);
+		kR=-R*R/(R-2*mR);
+		Y1=K;
+		Y2=aR*H0+bR*K;
+		Z=(kR*Y1-Y2)/(kR*gR-hR);
+		DZ=(gR*Y2-hR*Y1)/(gR*kR-hR);
+		if(w<2e-6){
+			Results->Rho=RhocSI;
+			Results->M=0;
+			Results->r=0;
+			Results->freq=0;
+			Results->dampTime=0;
+			status=3;
+			goto funcExit;
+		}
+		for(r=R;r<25.0/w;r=r+dr){
+			drx=dr/(1-2*mR/r);
+			VZ=(1-2*mR/r)/r/r/r/(n*r+3*mR)/(n*r+3*mR);
+			VZ=VZ*(2.0*n*n*(n+1)*r*r*r+6.0*n*n*mR*r*r+18.0*n*mR*mR*r+18*mR*mR*mR);
+			DDZ=(VZ-w*w)*Z;
+			Z=Z+DZ*drx;
+			DZ=DZ+DDZ*drx;
+		}
+		r=r-dr;
+		rx=r+2*mR*log(r/2/mR-1);
+		Ar1=2*cos(w*rx)-2*(n+1)/w/r*sin(w*rx)+1/w/w/r/r*(1.5*mR*w*(1+2/n)*sin(w*rx)-n*(n+1)*cos(w*rx));
+		Ai1=2*sin(w*rx)+2*(n+1)/w/r*cos(w*rx)-1/w/w/r/r*(1.5*mR*w*(1+2/n)*cos(w*rx)+n*(n+1)*sin(w*rx));
+		Ar2=-2*w*sin(w*rx)-2*(n+1)*cos(w*rx)/r+1/w/r/r*(1.5*mR*w*(1+2/n)*cos(w*rx)+n*(n+1)*sin(w*rx))+(1-2*mR/r)*2*(n+1)/w/r/r*sin(w*rx);
+		Ai2=2*w*cos(w*rx)-2*(n+1)*sin(w*rx)/r+1/w/r/r*(1.5*mR*w*(1+2/n)*sin(w*rx)-n*(n+1)*cos(w*rx))-(1-2*mR/r)*2*(n+1)/w/r/r*cos(w*rx);
+		ar=(Ai2*Z-Ai1*DZ)/(Ar1*Ai2-Ar2*Ai1);
+		ai=-(Ar1*DZ-Ar2*Z)/(Ar1*Ai2-Ar2*Ai1);
+		if(t==0){
+			Ar[t]=ar;
+			Ai[t]=ai;
+		}else{
+			Ar[q]=ar;
+			Ai[q]=ai;
+			Br[0]=(o[0]*Ar[1]-o[1]*Ar[0])/(o[0]-o[1]);
+			Br[1]=(Ar[0]-Ar[1])/(o[0]-o[1]);
+			Bi[0]=(o[0]*Ai[1]-o[1]*Ai[0])/(o[0]-o[1]);
+			Bi[1]=(Ai[0]-Ai[1])/(o[0]-o[1]);
+			w=-(Br[0]*Br[1]+Bi[0]*Bi[1])/(Br[1]*Br[1]+Bi[1]*Bi[1]);
+			if (w<=o[0]){
+				o[1]=o[0];o[0]=w;Ar[1]=Ar[0];Ai[1]=Ai[0];q=0;
+			}else if(w>=o[1]){
+				o[0]=o[1];o[1]=w;Ar[0]=Ar[1];Ai[0]=Ai[1];q=1;
+			}else if((o[1]-w)>(w-o[0])){
+				o[1]=w;q=1;
+			}else{
+				o[0]=w;q=0;
+			}
+		}
+	}
+	wi=(Br[0]*Bi[1]-Bi[0]*Br[1])/(Br[1]*Br[1]+Bi[1]*Bi[1]);
+	Results->Rho=ne;
+	Results->M=mR/(Msun*Gc2);
+	Results->r=RR/1000;
+	Results->freq=w*c/(2000*pi);
+	Results->dampTime=1/(wi*c);
+funcExit:
+	return status;
+}
+
+void * m2fmodeGate_fm(void *args){
+    struct fmodeParams_t *thisParams;
+    thisParams = (struct fmodeParams_t * ) args;
+    loadEoS_mt(thisParams->EoS,thisParams->EoS->FilePath);
+    double rhoc=M2Rhoc_fm(thisParams->fM,thisParams->EoS);
+    fmode_fm(thisParams->EoS, rhoc, thisParams->Results, thisParams->auxSpace);
+    return 0x00;
+}
+
+int m2fmode_fm(int threadNum, struct CompactStar_t *Results, double fM, struct EoSpath_t *EoSlist, int EoSlistLen) {
+    threadNum=threadNum<EoSlistLen?threadNum:EoSlistLen;
+    if(threadNum<1){
+        return 0;
+    }
+    struct auxSpace_t auxSpace[threadNum];
+    struct fmodeParams_t fmodeParams[threadNum];
+    struct EoS_t EoS[threadNum];
+    pthread_t fmodeThread[threadNum];
+    int pf,section=0;
+
+    /*register auxiliary space for each thread*/
+    for(pf=0;pf<threadNum;pf++){
+        auxSpace[pf].mfile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].pfile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].rhofile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Bfile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Bcor=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Wfile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Wfile1=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Wfile2=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Vfile=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Vfile1=(double*)malloc(50000*sizeof(double));
+        auxSpace[pf].Vfile2=(double*)malloc(50000*sizeof(double));
+    }
+    while(section+threadNum<=EoSlistLen){
+        for(pf=0;pf<threadNum;pf++,section++){
+            strcpy(EoS[pf].FilePath,EoSlist[section].FilePath);
+            fmodeParams[pf].EoS=&EoS[pf];
+            fmodeParams[pf].fM=fM;
+            fmodeParams[pf].Results=&Results[section];
+            fmodeParams[pf].auxSpace=&auxSpace[pf];
+            while(pthread_create(&fmodeThread[pf],NULL,m2fmodeGate_fm,&fmodeParams[pf])){usleep(50000);}
+        }
+        for(pf=0;pf<threadNum;pf++){
+            pthread_join(fmodeThread[pf],NULL);
+        }
+    }
+
+    /*release the aux space*/
+    for(pf=0;pf<threadNum;pf++){
+        free(auxSpace[pf].mfile);
+        free(auxSpace[pf].pfile);
+        free(auxSpace[pf].rhofile);
+        free(auxSpace[pf].Bfile);
+        free(auxSpace[pf].Bcor);
+        free(auxSpace[pf].Wfile);
+        free(auxSpace[pf].Wfile1);
+        free(auxSpace[pf].Wfile2);
+        free(auxSpace[pf].Vfile);
+        free(auxSpace[pf].Vfile1);
+        free(auxSpace[pf].Vfile2);
+    }
+
+    m2fmode_fm(threadNum,&Results[section],fM,&EoSlist[section],EoSlistLen-section);
+
+    return 0;
+}
+
