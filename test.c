@@ -6,11 +6,12 @@ int main(int argc, char *argv[]){
 	int pf;
 	double cdenArray[]={6.5e17,7e17,7.2e17,8e17,8.2e17,8.4e17,8.6e17,8.8e17,9e17,9.2e17,9.5e17,9.8e17,1e18,1.05e18,1.08e18,1.1e18,1.12e18,1.14e18,1.2e18};
 
-	struct CompactStar_t Results[18];
+	CompactStar_t Results[18];
+	EoS_t myEoS;
 
-	loadEoS("APR.txt");
+	loadEoS(&myEoS, "APR.txt");
 
-	fmode_mt(4,Results,cdenArray,18);
+	fmode_mt(Results,&myEoS,cdenArray,18, 5);
 
 	fprintf(stdout,"fmode:\n");
 	for(pf=0;pf<18;pf++){
@@ -22,7 +23,7 @@ int main(int argc, char *argv[]){
 		Results[pf].dampTime);
 	}
 
-	solveTOV_mt(4,Results,cdenArray,18);
+	solveTOV_mt(Results,&myEoS,cdenArray,18, 7);
 
 	fprintf(stdout,"\nsolveTOV:\n");
 	for(pf=0;pf<18;pf++){
@@ -34,12 +35,13 @@ int main(int argc, char *argv[]){
 		Results[pf].Lambda);
 	}
 
-	double rhoc=M2Rhoc(1.440091);
-	struct CompactStar_t tmpResult;
+	CompactStar_t myResult;
 
-	solveTOV(rhoc,&tmpResult);
+	double rhoc=M2Rhoc(&myEoS, 1.440091);
 
-	fprintf(stdout,"\nTry to find M=1.440091:\nrhoc=%e M=%.8lf\n",rhoc,tmpResult.M);
+	solveTOV(&myResult, &myEoS, rhoc);
+
+	fprintf(stdout,"\nTry to find M=1.440091:\nrhoc=%e M=%.8lf\n",rhoc,myResult.M);
 
 	return 0;
 }

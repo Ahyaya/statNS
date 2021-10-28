@@ -22,7 +22,7 @@
 #define _STATNS_H
 #endif
 
-struct EoS_t {
+struct statNS_EoS_t {
 	int length;
 	double RhomaxSI;
 	double RhominSI;
@@ -38,12 +38,14 @@ struct EoS_t {
 	double lgP_SI[3000];
 	char FilePath[128];
 };
+typedef struct statNS_EoS_t 	EoS_t;
 
-struct EoSpath_t {
+struct statNS_Path_t {
 	char FilePath[128];
 };
+typedef struct statNS_Path_t	Path_t;
 
-struct CompactStar_t {
+struct statNS_Asset_t {
 	double P;
 	double r;
 	double Rho;
@@ -59,71 +61,76 @@ struct CompactStar_t {
 	double freq;
 	double dampTime;
 };
+typedef struct statNS_Asset_t	CompactStar_t;
 
-struct RungeKutta_Array_t {
+struct statNS_RK_Arr_t {
 	double P;
 	double M;
 	double I;
 	double Ag00;
 	double y;
 };
+typedef struct statNS_RK_Arr_t	RK_Arr_t;
 
 struct solveTOVparams_t{
 	double RhocSI;
-	struct CompactStar_t *Results;
+	CompactStar_t *Results;
+	EoS_t *EoS;
 };
 
-struct ComputeStatus_t {
+struct statNS_ComputeStatus_t {
 	int RkStop;
 	int AllStop;
 	double RkErr;
-	int (*K_roll)(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-	int (*X_join)(struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
+	int (*K_roll)(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+	int (*X_join)(RK_Arr_t *Result, double h, RK_Arr_t *K);
 };
+typedef struct statNS_ComputeStatus_t	ComputeStatus_t;
 
-struct auxSpace_t {
+struct statNS_auxSpace_t {
 	double *mfile,*pfile,*rhofile,*Bfile,*Bcor,*Wfile,*Wfile1,*Wfile2,*Vfile,*Vfile1,*Vfile2;
 };
+typedef struct statNS_auxSpace_t	auxSpace_t;
 
 struct fmodeParams_t {
-        double RhocSI;
-        double fM;
-        struct CompactStar_t *Results;
-        struct auxSpace_t *auxSpace;
-        struct EoS_t *EoS;
+    double RhocSI;
+    double fM;
+    CompactStar_t *Results;
+    auxSpace_t *auxSpace;
+    EoS_t *EoS;
 };
 
-int dFunc(struct RungeKutta_Array_t *K, double r, struct RungeKutta_Array_t *X);
-double interp_p2rho(double cp, double *VsOUT);
-double interp_rho2p(double crho);
-int RungeKutta_Array_add (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K, struct RungeKutta_Array_t *X);
-int RungeKutta_Array_adds (struct RungeKutta_Array_t *Result, double *h, struct RungeKutta_Array_t *K, struct RungeKutta_Array_t *X, int dim);
-int loadEoS(char *Path);
-int RungeKutta_RK4_roll(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-int RungeKutta_RK4_join (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
-int RungeKutta_RK4M_roll(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-int RungeKutta_RK4M_join (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
-int RungeKutta_RK5F_roll(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-int RungeKutta_RK5F_join (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
-int RungeKutta_RK5M_roll(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-int RungeKutta_RK5M_join (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
-int RungeKutta_RK5L_roll(struct RungeKutta_Array_t *K, double h, double r, struct RungeKutta_Array_t *X);
-int RungeKutta_RK5L_join (struct RungeKutta_Array_t *Result, double h, struct RungeKutta_Array_t *K);
+int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X);
+double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT);
+double interp_rho2p(EoS_t *EoS, double crho);
+double interp_p2rho_SI(EoS_t *EoS, double cp);
+double interp_rho2p_SI(EoS_t *EoS, double crho);
+int RungeKutta_Array_add (RK_Arr_t *Result, double h, RK_Arr_t *K, RK_Arr_t *X);
+int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X, int dim);
+int loadEoS(EoS_t *EoS, char *Path);
+int RungeKutta_RK4_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+int RungeKutta_RK4_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+int RungeKutta_RK4M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+int RungeKutta_RK4M_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+int RungeKutta_RK5F_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
+int RungeKutta_RK5L_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
-double getMmax();
-double M2Rhoc(double fM);
+double getMmax(EoS_t *EoS);
+double M2Rhoc(EoS_t *EoS, double fM);
 void *solveTOVGate (void *args);
-int solveTOV(double RhocSI, struct CompactStar_t *Results);
-int solveTOV_mt(int threadNum, struct CompactStar_t *Results, double *cdenArray, int arrayLen);
+int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI);
+int solveTOV_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, int threads);
 
-double ch(double cp);
-double che(double crho);
-double gf(double e);
+double gf(EoS_t *EoS, double e);
 double Ff(double r,double A,double e,double p,double m,double Dp);
 
 void * fmodeGate (void *args);
-int fmode(double RhocSI, struct CompactStar_t *Results, struct auxSpace_t *auxSpace);
-int fmode_mt(int threadNum, struct CompactStar_t *Results, double *cdenArray, int arrayLen);
+int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpace);
+int fmode_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, int threads);
 
 double fp(double r,double p,double e,double m);
 double fm(double r,double e);
@@ -141,14 +148,9 @@ double Vf(double r,double w,double e,double p,double B,double A,double Dp,double
  * all function need to specify address of EoS instead.
  * This frame is optimized for multi-EoS computation.
  */
-double gf_fm(struct EoS_t *EoS, double e);
-double interp_p2rho_fm(struct EoS_t *EoS, double cp);
-double interp_rho2p_fm(struct EoS_t *EoS, double crho);
-int loadEoS_mt(struct EoS_t *EoS, char *Path);
-double getM_fm(double RhocSI, struct EoS_t *EoS);
-double getMmax_fm(struct EoS_t *EoS);
-double M2Rhoc_fm(double fM, struct EoS_t *EoS);
-int fmode_fm(struct EoS_t *EoS, double RhocSI, struct CompactStar_t *Results, struct auxSpace_t *auxSpace);
-void * m2fmodeGate_fm(void *args);
-int m2fmode_fm(int threadNum, struct CompactStar_t *Results, double fM, struct EoSpath_t *EoSlist, int EoSlistLen);
 
+double getM_fm(EoS_t *EoS, double RhocSI);
+double getMmax_fm(EoS_t *EoS);
+double M2Rhoc_fm(EoS_t *EoS, double fM);
+void * m2fmodeGate(void *args);
+int m2fmode_mt(CompactStar_t *Results, double fM, Path_t *EoSlist, int EoSlistLen, int threads);

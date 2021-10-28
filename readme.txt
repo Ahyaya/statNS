@@ -1,5 +1,5 @@
 在你的C语言程序中调用statNS库的初等方法：
-gcc example/test.c lib/libstatNS.so -o test.out
+gcc test.c lib/libstatNS.so -o test.out
 
 使用这一方法调用该库存在弊端，即test.out和lib/libstatNS.so的相对位置不能改变，否则你无法运行test.out
 而且引用statNS.h的时候必须要注意你的代码源文件只能在当前位置进行编译。
@@ -16,7 +16,7 @@ sudo cp lib/* /usr/lib64/
 sudo cp src/*.h /usr/include/
 
 如此一来，程序的开头引用#include "src/statNS.h"可以直接改为#include <statNS.h>，而编译命令则需要改为：
-gcc example/test.c -lstatNS -o test.out
+gcc test.c -lstatNS -o test.out
 
 这样你的代码源文件可以任意位置进行编译，而且编译得到的test.out也不受位置束缚，它可以移动到你计算机上的任意位置运行。
 
