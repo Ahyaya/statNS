@@ -100,6 +100,21 @@ struct fmodeParams_t {
     EoS_t *EoS;
 };
 
+struct statNS_ArXiv_t {
+	int length;
+	int index[2048];
+	double RhocSI[2048];
+	double M[2048];
+};
+
+typedef struct statNS_ArXiv_t	ArXiv_t;
+
+struct getM_params_t {
+	EoS_t *EoS;
+	double RhocSI;
+	double *M;
+};
+
 int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X);
 double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT);
 double interp_rho2p(EoS_t *EoS, double crho);
@@ -154,3 +169,14 @@ double getMmax_fm(EoS_t *EoS);
 double M2Rhoc_fm(EoS_t *EoS, double fM);
 void * m2fmodeGate(void *args);
 int m2fmode_mt(CompactStar_t *Results, double fM, Path_t *EoSlist, int EoSlistLen, int threads);
+
+/*
+ * new frame to fast convert multiple-mass (array) to Rhoc, with one EoS loaded.
+*/
+void setIndex(int *index, int len);
+void rec2arxiv(ArXiv_t *arxiv, double RhocSI, double M);
+int arcSimSort(int head, int tail, int* index, double* data);
+int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int arrayLen);
+void *getM_fmGate (void *args);
+int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads);
+int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads);

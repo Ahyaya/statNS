@@ -1054,3 +1054,158 @@ int m2fmode_mt(CompactStar_t *Results, double fM, Path_t *EoSlist, int EoSlistLe
     return 0;
 }
 
+void setIndex(int *index, int len){
+	while(len-- > 0){
+		index[len]=len;
+	}
+	return;
+}
+
+void rec2arxiv(ArXiv_t *arxiv, double RhocSI, double M){
+	arxiv->RhocSI[arxiv->length]=RhocSI;
+	arxiv->M[arxiv->length]=M;
+	arxiv->length++;
+	return;
+}
+
+int arcSimSort(int head, int tail, int* index, double* data){
+    int pf, spf=0, unsort, swap;
+    for(unsort=head;unsort<tail+1;unsort++){
+        pf=unsort;spf=unsort;
+        while(pf<tail+1){
+                spf=data[index[pf]]<data[index[spf]]?pf:spf;
+                pf++;
+        }
+        swap=index[spf];
+        index[spf]=index[unsort];
+        index[unsort]=swap;
+    }
+    return 0;
+}
+
+int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int arrayLen) {
+	int pf, *mid=Arxiv->index;
+	while(arrayLen-- > 0){
+		for(pf=Arxiv->length-1; pf>0; pf--){
+			if(massArr[arrayLen]>Arxiv->M[mid[pf-1]]){
+				break;
+			}
+		}
+		RhocGuess[arrayLen]=(massArr[arrayLen]-(Arxiv->M[mid[pf-1]]) )*((Arxiv->RhocSI[mid[pf]])-(Arxiv->RhocSI[mid[pf-1]]))/((Arxiv->M[mid[pf]])-(Arxiv->M[mid[pf-1]]))+(Arxiv->RhocSI[mid[pf-1]]);
+	}
+	return 0;
+}
+
+void *getM_fmGate (void *args) {
+	struct getM_params_t *thisParams;
+	thisParams=(struct getM_params_t *) args;
+	*(thisParams->M)=getM_fm(thisParams->EoS,thisParams->RhocSI);
+	return 0x00;
+}
+
+int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
+	threads=threads<arrayLen?threads:arrayLen;
+	if(threads<1){
+		return 0;
+	}
+	struct getM_params_t gm_params[8];
+	pthread_t getMthread[threads];
+	int pf,section=0;
+
+	while(section+threads<=arrayLen){
+		for(pf=0;pf<threads;pf++,section++){
+			gm_params[pf].RhocSI=RhocSI[section];
+			gm_params[pf].M=&massArr[section];
+			gm_params[pf].EoS=EoS;
+			while(pthread_create(&getMthread[pf],NULL,getM_fmGate,&gm_params[pf])){usleep(50000);}
+		}
+		for(pf=0;pf<threads;pf++){
+			pthread_join(getMthread[pf],NULL);
+		}
+	}
+
+	getM_fm_mt(&massArr[section],EoS,&RhocSI[section],arrayLen-section,threads);
+	return 0;
+}
+
+int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads) {
+	threads=threads<arrayLen?threads:arrayLen;
+	threads=threads<2?2:threads;
+	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
+    double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
+    int n, pf;
+
+	double RhocFrame[threads], massFrame[threads], RhocGuess[arrayLen], massGuess[arrayLen];
+
+	ArXiv_t thisArxiv={0};
+	setIndex(thisArxiv.index,sizeof(thisArxiv.index));
+    
+	E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
+    E0=E1-dE;
+    m1=getM_fm(EoS,E1);rec2arxiv(&thisArxiv,E1,m1);
+    m0=getM_fm(EoS,E0);rec2arxiv(&thisArxiv,E0,m0);
+    if(m0-m1<=0) {
+        EoS->Rhoc_MmaxSI=E1;
+        EoS->Mmax=m1;
+        goto MmaxFound;
+    }
+    for(n=0;n<7;n++) {
+        E1=E1*0.72;
+        E0=E1-dE;
+        m1=getM_fm(EoS,E1);rec2arxiv(&thisArxiv,E1,m1);
+        m0=getM_fm(EoS,E0);rec2arxiv(&thisArxiv,E0,m0);
+        if(m0-m1<=0) break;
+    }
+    if(m0-m1>0) {
+        EoS->Rhoc_MmaxSI=E0;
+        EoS->Mmax=m0;
+        goto MmaxFound;
+    }
+    Ea=E1;Eb=E1*1.3888888888889;
+    Ec=Ea+0.382*(Eb-Ea);
+    Ed=Eb-Ec+Ea;
+    mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
+    md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+    for(n=0;n<15;n++) {
+        if(mc-md>0) {
+            Eb=Ed;mb=md;
+            Ed=Ec;md=mc;
+            Ec=Ea+0.382*(Eb-Ea);
+            mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
+        }else{
+            Ea=Ec;ma=mc;
+            Ec=Ed;mc=md;
+            Ed=Ea+0.618*(Eb-Ea);
+            md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+        }
+    }
+    EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
+    EoS->Mmax=getM_fm(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
+	Mmin=getM_fm(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
+
+MmaxFound:
+
+	for(n=0;n<threads;n++){
+		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
+	}
+	getM_fm_mt(massFrame, EoS, RhocFrame, threads, threads);
+
+	for(n=0;n<threads;n++){
+		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+	}
+
+	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+
+	for(n=0;n<8;n++){
+		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, arrayLen);
+		getM_fm_mt(massGuess, EoS, RhocGuess, arrayLen, threads);
+		for(pf=0;pf<arrayLen;pf++){
+			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
+		}
+		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	}
+
+	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, arrayLen);
+
+	return 0;
+}
