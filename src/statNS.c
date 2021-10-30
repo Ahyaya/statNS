@@ -1136,24 +1136,29 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int
     int n, pf;
 
 	double RhocFrame[threads], massFrame[threads], RhocGuess[arrayLen], massGuess[arrayLen];
+	double tmpMassM0M1[2], tmpRhocE0E1[2];
 
 	ArXiv_t thisArxiv={0};
 	setIndex(thisArxiv.index,sizeof(thisArxiv.index));
     
-	E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
-    E0=E1-dE;
-    m1=getM_fm(EoS,E1);rec2arxiv(&thisArxiv,E1,m1);
-    m0=getM_fm(EoS,E0);rec2arxiv(&thisArxiv,E0,m0);
+	tmpRhocE0E1[1]=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
+	tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
+	getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
+    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
     if(m0-m1<=0) {
         EoS->Rhoc_MmaxSI=E1;
         EoS->Mmax=m1;
         goto MmaxFound;
     }
     for(n=0;n<7;n++) {
-        E1=E1*0.72;
-        E0=E1-dE;
-        m1=getM_fm(EoS,E1);rec2arxiv(&thisArxiv,E1,m1);
-        m0=getM_fm(EoS,E0);rec2arxiv(&thisArxiv,E0,m0);
+		tmpRhocE0E1[1] *= 0.72;
+		tmpRhocE0E1[0] = tmpRhocE0E1[1]-dE;
+		getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
+		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
         if(m0-m1<=0) break;
     }
     if(m0-m1>0) {
@@ -1164,8 +1169,12 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int
     Ea=E1;Eb=E1*1.3888888888889;
     Ec=Ea+0.382*(Eb-Ea);
     Ed=Eb-Ec+Ea;
-    mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
-    md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+	tmpRhocE0E1[0]=Ec;tmpRhocE0E1[1]=Ed;
+	getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+	mc=tmpMassM0M1[0];rec2arxiv(&thisArxiv,Ec,mc);
+	md=tmpMassM0M1[1];rec2arxiv(&thisArxiv,Ed,md);
+
     for(n=0;n<15;n++) {
         if(mc-md>0) {
             Eb=Ed;mb=md;
