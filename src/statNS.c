@@ -17,7 +17,9 @@ static const double pi=3.14159265358979,
 			  Mscale=2.033931261665867e5;
 
 
-ComputeStatus_t ComputeStatus={0,0,0,RungeKutta_RK5L_roll,RungeKutta_RK5L_join};
+ComputeStatus_t ComputeStatus={0,0,0,
+RungeKutta_RK5L_roll,RungeKutta_RK5L_join,
+RungeKutta_RK5L_roll_s,RungeKutta_RK5L_join_s};
 
 double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT) {
 	if(cp<EoS->Pmin) {
@@ -300,6 +302,114 @@ int loadEoS(EoS_t *EoS, char *Path) {
 	return 0;
 }
 
+int RungeKutta_Array_adds_s (RK_Arr_s *Result, double *h, RK_Arr_s *K, RK_Arr_s *X, int dim) {
+	int pf;
+	Result->P=X->P;
+	Result->M=X->M;
+
+	for (pf=0;pf<dim;pf++){
+		Result->P+=h[pf]*((K+pf)->P);
+		Result->M+=h[pf]*((K+pf)->M);
+	}
+	return 0;
+}
+
+int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X) {
+	RK_Arr_s rkVar;
+    double H_1[1]={0.08333333333333333*h};
+    double H_2[2]={-0.125*h, 0.375*h};
+    double H_3[3]={0.6*h,-0.9*h,0.8*h};
+    double H_4[4]={0.4875*h,-0.45*h,0.15*h,0.5625*h};
+    double H_5[5]={-1.685714285714286*h,1.885714285714286*h,1.371428571428571*h,-1.714285714285714*h,1.142857142857143*h};
+    if(dFunc_s(EoS, &K[0], r, X)){return -1;}
+    RungeKutta_Array_adds_s(&rkVar,H_1,K,X,1);
+    if(dFunc_s(EoS, &K[1], r+0.083333333333333333*h, &rkVar)){return -1;}
+    RungeKutta_Array_adds_s(&rkVar,H_2,K,X,2);
+    if(dFunc_s(EoS, &K[2], r+0.25*h, &rkVar)){return -1;}
+    RungeKutta_Array_adds_s(&rkVar,H_3,K,X,3);
+    if(dFunc_s(EoS, &K[3], r+0.5*h, &rkVar)){return -1;}
+    RungeKutta_Array_adds_s(&rkVar,H_4,K,X,4);
+    if(dFunc_s(EoS, &K[4], r+0.75*h, &rkVar)){return -1;}
+    RungeKutta_Array_adds_s(&rkVar,H_5,K,X,5);
+    if(dFunc_s(EoS, &K[5], r+h, &rkVar)){return -1;}
+    return 0;
+}
+
+int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K) {
+	RK_Arr_s rkVar;
+    double H[6]={0.077777777777777777778*h,0,0.355555555555555555556*h,0.13333333333333333333*h,0.355555555555555555556*h,0.077777777777777777777778*h};
+    RungeKutta_Array_adds_s(&rkVar, H, K, Result, 6);
+    RungeKutta_Array_adds_s(Result, H, K, &rkVar, 0);/*dim=0 means copy the array*/
+    return 0;
+}
+
+int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X) {
+	double Vs;
+	double Rho=interp_p2rho(EoS, X->P,&Vs);
+	if(Rho<0){
+		return -1;
+	}
+	K->M = 4.0*pi*Rho*r*r;
+	K->P = (Rho+X->P)*(X->M+4*pi*r*r*r*(X->P))/(2*(X->M)*r-r*r);
+	return 0;
+}
+
+double getM_s(EoS_t *EoS, double RhocSI) {
+	
+	RK_Arr_s K[8];
+	double h;
+
+	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
+	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho);
+	int pf=0;
+	RK_Arr_s X={p,m};
+
+	/*core section with proceeding stepsize*/
+	h=0.125/c;
+	for(pf=0;pf<64;pf++) {
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		ComputeStatus.X_join_s(&X,h, K);
+		r+=h;
+	}
+	h=1.0/c;
+	for(pf=0;pf<128;pf++) {
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		ComputeStatus.X_join_s(&X,h, K);
+		r+=h;
+	}
+	h=4.0/c;
+	for(pf=0;pf<256;pf++) {
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		ComputeStatus.X_join_s(&X,h, K);
+		r+=h;
+	}
+	/*end of core section*/
+
+	/*regular computation*/
+	h=16.0/c;
+	while(r<1e-4) {
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		ComputeStatus.X_join_s(&X,h, K);
+		r+=h;
+	}
+
+	/*use a small stepsize to reach the surface*/
+	h=2.0/c;
+	while(r<1e-4) {
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		ComputeStatus.X_join_s(&X,h, K);
+		r+=h;
+	}
+	/*interpolate the radius at surface, according to pressure and its derivative*/
+	r_offset=K[0].P<0?X.P/(K[0].P):0;
+	r_offset=r_offset>-h?r_offset:-h;
+	r-=r_offset;
+
+	m=X.M;
+
+	return m*Mscale;
+}
+
 int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	
 	RK_Arr_t K[8];
@@ -402,7 +512,7 @@ int solveTOV_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen
 
 double getMmax(EoS_t *EoS) {
 	int n;
-	double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=1e12;
+	double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=5e15;
 	CompactStar_t nsVar;
 
 	E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
@@ -918,7 +1028,7 @@ double getM_fm(EoS_t *EoS, double RhocSI){
 
 double getMmax_fm(EoS_t *EoS) {
     int n;
-    double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=1e12;
+    double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=5e15;
 
     E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
     E0=E1-dE;
@@ -1208,6 +1318,130 @@ MmaxFound:
 	for(n=0;n<8;n++){
 		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, arrayLen);
 		getM_fm_mt(massGuess, EoS, RhocGuess, arrayLen, threads);
+		for(pf=0;pf<arrayLen;pf++){
+			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
+		}
+		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	}
+
+	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, arrayLen);
+
+	return 0;
+}
+
+void *getM_sGate (void *args) {
+	struct getM_params_t *thisParams;
+	thisParams=(struct getM_params_t *) args;
+	*(thisParams->M)=getM_s(thisParams->EoS,thisParams->RhocSI);
+	return 0x00;
+}
+
+
+int getM_s_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
+	threads=threads<arrayLen?threads:arrayLen;
+	if(threads<1){
+		return 0;
+	}
+	struct getM_params_t gm_params[8];
+	pthread_t getMthread[threads];
+	int pf,section=0;
+
+	while(section+threads<=arrayLen){
+		for(pf=0;pf<threads;pf++,section++){
+			gm_params[pf].RhocSI=RhocSI[section];
+			gm_params[pf].M=&massArr[section];
+			gm_params[pf].EoS=EoS;
+			while(pthread_create(&getMthread[pf],NULL,getM_sGate,&gm_params[pf])){usleep(50000);}
+		}
+		for(pf=0;pf<threads;pf++){
+			pthread_join(getMthread[pf],NULL);
+		}
+	}
+
+	getM_s_mt(&massArr[section],EoS,&RhocSI[section],arrayLen-section,threads);
+	return 0;
+}
+
+int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads) {
+	threads=threads<arrayLen?threads:arrayLen;
+	threads=threads<2?2:threads;
+	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
+    double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
+    int n, pf;
+
+	double RhocFrame[threads], massFrame[threads], RhocGuess[arrayLen], massGuess[arrayLen];
+	double tmpMassM0M1[2], tmpRhocE0E1[2];
+
+	ArXiv_t thisArxiv={0};
+	setIndex(thisArxiv.index,sizeof(thisArxiv.index));
+    
+	tmpRhocE0E1[1]=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
+	tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
+	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
+    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+    if(m0-m1<=0) {
+        EoS->Rhoc_MmaxSI=E1;
+        EoS->Mmax=m1;
+        goto MmaxFound;
+    }
+    for(n=0;n<7;n++) {
+		tmpRhocE0E1[1] *= 0.72;
+		tmpRhocE0E1[0] = tmpRhocE0E1[1]-dE;
+		getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
+		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+        if(m0-m1<=0) break;
+    }
+    if(m0-m1>0) {
+        EoS->Rhoc_MmaxSI=E0;
+        EoS->Mmax=m0;
+        goto MmaxFound;
+    }
+    Ea=E1;Eb=E1*1.3888888888889;
+    Ec=Ea+0.382*(Eb-Ea);
+    Ed=Eb-Ec+Ea;
+	tmpRhocE0E1[0]=Ec;tmpRhocE0E1[1]=Ed;
+	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+
+	mc=tmpMassM0M1[0];rec2arxiv(&thisArxiv,Ec,mc);
+	md=tmpMassM0M1[1];rec2arxiv(&thisArxiv,Ed,md);
+
+    for(n=0;n<15;n++) {
+        if(mc-md>0) {
+            Eb=Ed;mb=md;
+            Ed=Ec;md=mc;
+            Ec=Ea+0.382*(Eb-Ea);
+            mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
+        }else{
+            Ea=Ec;ma=mc;
+            Ec=Ed;mc=md;
+            Ed=Ea+0.618*(Eb-Ea);
+            md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+        }
+    }
+    EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
+    EoS->Mmax=getM_fm(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
+	Mmin=getM_fm(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
+
+MmaxFound:
+
+	for(n=0;n<threads;n++){
+		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
+	}
+	getM_s_mt(massFrame, EoS, RhocFrame, threads, threads);
+
+	for(n=0;n<threads;n++){
+		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+	}
+
+	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+
+	for(n=0;n<8;n++){
+		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, arrayLen);
+		getM_s_mt(massGuess, EoS, RhocGuess, arrayLen, threads);
 		for(pf=0;pf<arrayLen;pf++){
 			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
 		}

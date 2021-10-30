@@ -63,6 +63,12 @@ struct statNS_Asset_t {
 };
 typedef struct statNS_Asset_t	CompactStar_t;
 
+struct statNS_RK_Arr_s {
+	double P;
+	double M;
+};
+typedef struct statNS_RK_Arr_s	RK_Arr_s;
+
 struct statNS_RK_Arr_t {
 	double P;
 	double M;
@@ -84,6 +90,8 @@ struct statNS_ComputeStatus_t {
 	double RkErr;
 	int (*K_roll)(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
 	int (*X_join)(RK_Arr_t *Result, double h, RK_Arr_t *K);
+	int (*K_roll_s)(EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X);
+	int (*X_join_s)(RK_Arr_s *Result, double h, RK_Arr_s *K);
 };
 typedef struct statNS_ComputeStatus_t	ComputeStatus_t;
 
@@ -134,6 +142,11 @@ int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X);
 int RungeKutta_RK5L_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
+int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X);
+int RungeKutta_Array_adds_s (RK_Arr_s *Result, double *h, RK_Arr_s *K, RK_Arr_s *X, int dim);
+int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X);
+int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K);
+
 double getMmax(EoS_t *EoS);
 double M2Rhoc(EoS_t *EoS, double fM);
 void *solveTOVGate (void *args);
@@ -180,3 +193,8 @@ int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, 
 void *getM_fmGate (void *args);
 int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads);
 int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads);
+
+double getM_s(EoS_t *EoS, double RhocSI);
+void *getM_sGate (void *args);
+int getM_s_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads);
+int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads);

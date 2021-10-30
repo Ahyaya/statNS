@@ -42,6 +42,7 @@ int main(int argc, char *argv[]){
 	solveTOV(&myResult, &myEoS, rhoc);
 
 	fprintf(stdout,"\nTry to find M=1.440091:\nrhoc=%e M=%.8lf\n",rhoc,myResult.M);
+	fprintf(stdout,"fast getM_s() result: M=%lf\n",getM_s(&myEoS,rhoc));
 
 	return 0;
 }

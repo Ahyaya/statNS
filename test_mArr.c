@@ -28,5 +28,13 @@ int main(int argc, char *argv[]){
 		fprintf(stderr,"Rhoc=%e -->\tM=%lf freq=%lf dTime=%lf\n",rhocArray[pf],Results[pf].M,Results[pf].freq,Results[pf].dampTime);
 	}
 
+	fprintf(stderr,"==============================\n");
+
+	M2Rhoc_Arr_s(rhocArray, &myEoS, massArray, 16, 8);
+	solveTOV_mt(Results, &myEoS, rhocArray, 16, 8);
+	for(pf=0;pf<16;pf++){
+		fprintf(stderr,"Rhoc=%e -->\tM=%lf I=%lf Lambda=%lf\n",rhocArray[pf],Results[pf].M,Results[pf].I,Results[pf].Lambda);
+	}
+
 	return 0;
 }
