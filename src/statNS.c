@@ -511,88 +511,101 @@ int solveTOV_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen
 }
 
 double getMmax(EoS_t *EoS) {
-	int n;
-	double m0,m1,ma,mb,mc,md,E0,E1,Ea,Eb,Ec,Ed,Mmax,dE=5e15;
-	CompactStar_t nsVar;
+	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
+    double Mmax,Mmin,m0,m1,m2;
+    int n, pf;
+	double tmpMassM0M1[2], tmpRhocE0E1[2];
+    
+	tmpRhocE0E1[1]=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
+	tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
+	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-	E1=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
-	E0=E1-dE;
-	solveTOV(&nsVar,EoS,E1);
-	m1=nsVar.M;
-	solveTOV(&nsVar,EoS,E0);
-	m0=nsVar.M;
+	m1=tmpMassM0M1[1];
+	m0=tmpMassM0M1[0];
 	if(m0-m1<=0) {
-		EoS->Rhoc_MmaxSI=E1;
+		EoS->Rhoc_MmaxSI=tmpRhocE0E1[1];
 		EoS->Mmax=m1;
 		return m1;
 	}
 	for(n=0;n<7;n++) {
-		E1=E1*0.72;
-		E0=E1-dE;
-		solveTOV(&nsVar,EoS,E1);
-		m1=nsVar.M;
-		solveTOV(&nsVar,EoS,E0);
-		m0=nsVar.M;
+		tmpRhocE0E1[1] *= 0.72;
+		tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
+		getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+		m1=tmpMassM0M1[1];
+		m0=tmpMassM0M1[0];
+		
 		if(m0-m1<=0) break;
 	}
 	if(m0-m1>0) {
-		EoS->Rhoc_MmaxSI=E0;
+		EoS->Rhoc_MmaxSI=tmpRhocE0E1[0];
 		EoS->Mmax=m0;
 		return m0;
 	}
-	Ea=E1;Eb=E1*1.3888888889;
+	Ea=tmpRhocE0E1[1];Eb=tmpRhocE0E1[1]*1.3888888889;
 	Ec=Ea+0.382*(Eb-Ea);
 	Ed=Eb-Ec+Ea;
-	solveTOV(&nsVar,EoS,Ec);
-	mc=nsVar.M;
-	solveTOV(&nsVar,EoS,Ed);
-	md=nsVar.M;
+
+	tmpRhocE0E1[0]=Ec;
+	tmpRhocE0E1[1]=Ed;
+	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
+	mc=tmpMassM0M1[0];
+	md=tmpMassM0M1[1];
 	for(n=0;n<15;n++) {
 		if(mc-md>0) {
 			Eb=Ed;mb=md;
 			Ed=Ec;md=mc;
 			Ec=Ea+0.382*(Eb-Ea);
-			solveTOV(&nsVar,EoS,Ec);
-			mc=nsVar.M;
+			mc=getM_s(EoS,Ec);
 		}else{
 			Ea=Ec;ma=mc;
 			Ec=Ed;mc=md;
 			Ed=Ea+0.618*(Eb-Ea);
-			solveTOV(&nsVar,EoS,Ed);
-			md=nsVar.M;
+			md=getM_s(EoS,Ed);
 		}
 	}
 	EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
-	solveTOV(&nsVar,EoS,EoS->Rhoc_MmaxSI);
-	EoS->Mmax=nsVar.M;
-	return(nsVar.M);
+	EoS->Mmax=getM_s(EoS,EoS->Rhoc_MmaxSI);
+	return(EoS->Mmax);
 }
 
 double M2Rhoc(EoS_t *EoS, double fM) {
 	double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
-	int n;
-	CompactStar_t nsVar;
+	int n, threads=8;
+	double RhocFrame[threads], massFrame[threads], massGuess, RhocGuess;
+
+	ArXiv_t thisArxiv={0};
+	setIndex(thisArxiv.index,sizeof(thisArxiv.index));
+
 	Mmax=getMmax(EoS);
-	solveTOV(&nsVar,EoS,5e17);
-	Mmin=nsVar.M;
+	Mmin=getM_s(EoS,5e17);
 	if(Mmax-fM<0) return EoS->Rhoc_MmaxSI;
 	if(Mmin>fM) {
 		fprintf(stderr,"warning: attempt to find a low mass neutron star!\n");
 		return 5e17;
 	}
 	E0=5e17;E2=EoS->Rhoc_MmaxSI;m0=Mmin;m2=Mmax;
-	for(n=0;n<25;n++) {
-		E1=E2-(m2-fM)*(E2-E0)/(m2-m0);
-		solveTOV(&nsVar,EoS,E1);
-		m1=nsVar.M;
-		if(m1-fM<0)
-		{
-			E0=E1;m0=m1;
-		}else{
-			E2=E1;m2=m1;
-		}
+
+	for(n=0;n<threads;n++){
+		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
 	}
-	return(E0+(E2-E0)*(fM-m0)/(m2-m0));
+	getM_s_mt(massFrame, EoS, RhocFrame, threads, threads);
+
+	for(n=0;n<threads;n++){
+		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+	}
+
+	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+
+	for(n=0;n<8;n++){
+		interp_ArXiv_M2Rhoc_arr(&RhocGuess, &thisArxiv, &fM, 1);
+		massGuess=getM_s(EoS, RhocGuess);
+		rec2arxiv(&thisArxiv,RhocGuess,massGuess);
+		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	}
+
+	interp_ArXiv_M2Rhoc_arr(&RhocGuess, &thisArxiv, &fM, 1);
+
+	return(RhocGuess);
 }
 
 double gf(EoS_t *EoS, double e){
