@@ -49,7 +49,7 @@ statNS.fmode_mt(Results,pointer(myEoS),RhocSI,18,5)
 #print results to console
 print("\nExample 0 output:")
 for pf in range(0,18):
-    print("Rhoc={:.5e}, M={:.2f}, R={:.2f}, freq={:.2f}, dmpTime={:.4f}".format(Results[pf].Rho,Results[pf].M,Results[pf].r,Results[pf].freq,Results[pf].dampTime))
+    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, freq={:.4f}, dmpTime={:.4f}".format(Results[pf].Rho,Results[pf].M,Results[pf].r,Results[pf].freq,Results[pf].dampTime))
 
 #=====================================================================
 #Example 1: Compute f-mode frequencies given an array of mass

@@ -668,7 +668,7 @@ double Vf(double r,double w,double e,double p,double B,double A,double Dp,double
 }
 
 int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpace) {
-	double dr=0.5;
+	double dr=0.5, l=2;
 	double r,r0=1,R,RR,drx,rx;
 	double ne,p,e,m,mR,A,B=1.0,BR,Bfactor,m1,m2,m3,m4,p1,p2,p3,p4,B1,B2,B3,B4,pressure,I=0,J,DDf,Df=0,f=1;
 	double H1,H0,K,W,X,F,V,Dv,gamma,Dp,N;
@@ -773,8 +773,8 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		B=Bcor[0];
 		W=1.0;
 		K=(e+p);
-		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/2)*W+0.5*K);
-		H1=(2*K+16*pi*(e+p)*W)/3;
+		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/l)*W+0.5*K);
+		H1=(2*l*K+16*pi*(e+p)*W)/l/(l+1);
 		rpf=-1;
 		wpf=-1;
 		r=r0;
@@ -814,8 +814,8 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		e=rhofile[0];
 		B=Bcor[0];
 		W=1.0;K=-(e+p);
-		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/2.0)*W+0.5*K);
-		H1=(4.0*K+16*pi*(e+p)*W)/6.0;
+		X=(e+p)*sqrt(B)*((4*pi/3*(e+3*p)-w*w/B/l)*W+0.5*K);
+		H1=(2*l*K+16*pi*(e+p)*W)/l/(l+1);
 		r=r0;
 		while(rpf<pfEnd){
 			rpf++;
@@ -830,7 +830,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 			H0=H0f(r,B,X,m,p,A,H1,K,w);
 			V=Vf(r,w,e,p,B,A,Dp,W,H0,X);
 			if(r==r0)V02=V;
-			if((wcheck-w)/w>-Cri&&(wcheck-w)/w<Cri){
+			if(fabs((wcheck-w)/w)<Cri){
 				wpf++;
 				Wfile[wpf]=sqrt(1-2*m/r)*W;
 				Vfile[wpf]=V;
@@ -869,7 +869,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 			break;
 		}
 		wcheck=w;
-		n=1.5;
+		n=0.5*(l-1)*(l+2);
 		aR=-(n*R+3*mR)/(w*w*R*R-(n+1)*mR/R);
 		bR=(n*R*(R-2*mR)-w*w*R*R*R*R+mR*(R-3*mR));
 		bR=bR/(R-2*mR)/(w*w*R*R-(n+1)*mR/R);
