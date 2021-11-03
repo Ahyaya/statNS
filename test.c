@@ -13,7 +13,7 @@ int main(int argc, char *argv[]){
 
 	//allocate array for storing the output
 	//you may register a large enough array to store results when using longer input.
-	CompactStar_t Results[18];
+	CompactStar_t Results[32];
 	
 	//allocate EoS type variable to store your EoS density and pressure info in log10() format
 	EoS_t myEoS;
@@ -28,7 +28,7 @@ int main(int argc, char *argv[]){
 	//print results to console
 	fprintf(stderr,"\nExample 0 output:\n");
 	for(pf=0;pf<18;pf++){
-		fprintf(stderr,"Rhoc=%e, M=%.2lf, R=%.2lf, freq=%.2lf, dmpTime=%.4lf\n",
+		fprintf(stderr,"Rhoc=%.5e, M=%.4lf, R=%.4lf, freq=%.4lf, dmpTime=%.4lf\n",
 		Results[pf].Rho,
 		Results[pf].M,
 		Results[pf].r,
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]){
 	//define mass array sequence in the unit of solar mass
 	double massArray[]={1.25, 1.325, 1.4, 1.44 ,1.46, 1.48, 1.5, 1.55, 1.62, 1.64, 1.67, 1.7123, 1.7456, 1.8257, 1.90123, 1.95};
 
-	double rhocArray[16];
+	double rhocArray[32];
 
 	//This function compute the central density that corresponds to the mass array one by one,
 	//The central density will be written into rhocArray[],
@@ -55,7 +55,12 @@ int main(int argc, char *argv[]){
 	//print results to console
 	fprintf(stderr,"\nExample 1 output:\n");
 	for(pf=0;pf<16;pf++){
-		fprintf(stderr,"Rhoc=%e -->\tM=%lf freq=%lf dTime=%lf\n",rhocArray[pf],Results[pf].M,Results[pf].freq,Results[pf].dampTime);
+		fprintf(stderr,"Rhoc=%.5e, M=%.4lf, R=%.4lf, freq=%.4lf, dmpTime=%.4lf\n",
+		Results[pf].Rho,
+		Results[pf].M,
+		Results[pf].r,
+		Results[pf].freq,
+		Results[pf].dampTime);
 	}
 
 //=====================================================================
@@ -67,7 +72,7 @@ int main(int argc, char *argv[]){
 	//print results to console
 	fprintf(stderr,"\nExample 2 output:\n");
 	for(pf=0;pf<18;pf++){
-		fprintf(stderr,"Rhoc=%e, M=%.2lf, R=%.2lf, I=%.2lf, Lambda=%.4lf\n",
+		fprintf(stderr,"Rhoc=%.5e, M=%.4lf, R=%.4lf, I=%.4lf, Lambda=%.4lf\n",
 		Results[pf].Rho,
 		Results[pf].M,
 		Results[pf].r,
@@ -90,7 +95,12 @@ int main(int argc, char *argv[]){
 	//print results to console
 	fprintf(stderr,"\nExample 3 output:\n");
 	for(pf=0;pf<16;pf++){
-		fprintf(stderr,"Rhoc=%e -->\tM=%lf I=%lf Lambda=%lf\n",rhocArray[pf],Results[pf].M,Results[pf].I,Results[pf].Lambda);
+		fprintf(stderr,"Rhoc=%.5e, M=%.4lf, R=%.4lf, I=%.4lf, Lambda=%.4lf\n",
+		Results[pf].Rho,
+		Results[pf].M,
+		Results[pf].r,
+		Results[pf].I,
+		Results[pf].Lambda);
 	}
 
 	return 0;

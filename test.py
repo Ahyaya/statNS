@@ -5,6 +5,7 @@ import numpy as np
 statNS=cdll.LoadLibrary('./lib/libstatNS.so')
 
 #Begin of C2py
+#=====================================================================
 #set a map to translate variable types from C function to Python function
 class CompactStar_t(Structure):
     _fields_ = (("P",c_double),("r",c_double),("Rho",c_double),("M",c_double),("Ma",c_double),("Mp",c_double),("I",c_double),("Ag00",c_double),("y",c_double),("k2",c_double),("Lambda",c_double),("Vs",c_double),("freq",c_double),("dampTime",c_double))
@@ -25,6 +26,8 @@ statNS.M2Rhoc_Arr_s.restype = c_int
 statNS.M2Rhoc.argtypes = (POINTER(EoS_t), c_double)
 statNS.M2Rhoc.restype = c_double
 #End of C2Py
+#=====================================================================
+
 
 #=====================================================================
 #Example 0: Compute f-mode frequencies given an array of central density
@@ -49,7 +52,13 @@ statNS.fmode_mt(Results,pointer(myEoS),RhocSI,18,5)
 #print results to console
 print("\nExample 0 output:")
 for pf in range(0,18):
-    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, freq={:.4f}, dmpTime={:.4f}".format(Results[pf].Rho,Results[pf].M,Results[pf].r,Results[pf].freq,Results[pf].dampTime))
+    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, freq={:.4f}, dmpTime={:.4f}".format(
+        Results[pf].Rho,
+        Results[pf].M,
+        Results[pf].r,
+        Results[pf].freq,
+        Results[pf].dampTime))
+
 
 #=====================================================================
 #Example 1: Compute f-mode frequencies given an array of mass
@@ -63,15 +72,58 @@ rhocArray = (c_double*16)()
 #This function compute the central density that corresponds to the mass array one by one,
 #The central density will be written into rhocArray[],
 #the last two numbers are, 16 the length fo massArray[], 8 the desired threads to use
-statNS.M2Rhoc_Arr_fm(rhocArray, pointer(myEoS), massArray, 16, 8);
+statNS.M2Rhoc_Arr_fm(rhocArray, pointer(myEoS), massArray, 16, 8)
 
 #Call the f-mode multi-thread computation with rhocArray[], see also in Example 0.
-statNS.fmode_mt(Results, pointer(myEoS), rhocArray, 16, 8);
+statNS.fmode_mt(Results, pointer(myEoS), rhocArray, 16, 8)
 
 #print results to console
 print("\nExample 1 output:")
 for pf in range(0,16):
-    print("Rhoc={:.5e} -->\tM={:.4f} freq={:.4f} dTime={:.4f}".format(rhocArray[pf],Results[pf].M,Results[pf].freq,Results[pf].dampTime))
+    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, freq={:.4f}, dmpTime={:.4f}".format(
+        Results[pf].Rho,
+        Results[pf].M,
+        Results[pf].r,
+        Results[pf].freq,
+        Results[pf].dampTime))
 
+
+#=====================================================================
+#Example 2: Compute TOV equation given an array of central density
+
+#Similar to the fmode_mt() in Example 0, 18 is the length or RhocSI[], 7 is the threads limit
+statNS.solveTOV_mt(Results, pointer(myEoS), RhocSI, 18, 7)
+#print results to console
+print("\nExample 2 output:")
+for pf in range(0,16):
+    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, I={:.4f}, Lambda={:.4f}".format(
+		Results[pf].Rho,
+		Results[pf].M,
+		Results[pf].r,
+		Results[pf].I,
+		Results[pf].Lambda))
+
+
+#=====================================================================
+#Example 3: Compute TOV equation given an array of mass
+
+#Similar usage as M2Rhoc_Arr_fm() in Example 1,
+#NOTICE: 
+#integrator for fmode-xx related computation is different from that for solveTOV-xx
+#So I implement the central density determining function M2Rhoc() in two.
+statNS.M2Rhoc_Arr_s(rhocArray, pointer(myEoS), massArray, 16, 8)
+	
+#Call the multi-thread TOV solver as Example 2
+statNS.solveTOV_mt(Results, pointer(myEoS), rhocArray, 16, 8)
+	
+#print results to console
+print("\nExample 3 output:")
+for pf in range(0,16):
+    print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, I={:.4f}, Lambda={:.4f}".format(
+		Results[pf].Rho,
+		Results[pf].M,
+		Results[pf].r,
+		Results[pf].I,
+		Results[pf].Lambda))
 
 print("Done\n")
