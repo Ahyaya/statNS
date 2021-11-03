@@ -469,6 +469,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 
 	double bt=m/r;
 	double Bg00=(1-2.0*m/r)/Ag00;
+	Results->Rho=RhocSI;
 	Results->I=I/(m*r*r*sqrt(Bg00));
 	Results->r=r*c*1e-3;
 	Results->M=m*Mscale;
@@ -930,7 +931,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		}
 	}
 	wi=(Br[0]*Bi[1]-Bi[0]*Br[1])/(Br[1]*Br[1]+Bi[1]*Bi[1]);
-	Results->Rho=ne;
+	Results->Rho=RhocSI;
 	Results->M=mR/(Msun*Gc2);
 	Results->r=RR/1000;
 	Results->freq=w*c/(2000*pi);

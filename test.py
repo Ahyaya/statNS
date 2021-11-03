@@ -1,5 +1,4 @@
 from ctypes import *
-import numpy as np
 
 #dynamically load C library libstatNS.so as object statNS,
 statNS=cdll.LoadLibrary('./lib/libstatNS.so')
@@ -97,11 +96,11 @@ statNS.solveTOV_mt(Results, pointer(myEoS), RhocSI, 18, 7)
 print("\nExample 2 output:")
 for pf in range(0,16):
     print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, I={:.4f}, Lambda={:.4f}".format(
-		Results[pf].Rho,
-		Results[pf].M,
-		Results[pf].r,
-		Results[pf].I,
-		Results[pf].Lambda))
+        Results[pf].Rho,
+        Results[pf].M,
+        Results[pf].r,
+        Results[pf].I,
+        Results[pf].Lambda))
 
 
 #=====================================================================
@@ -120,10 +119,10 @@ statNS.solveTOV_mt(Results, pointer(myEoS), rhocArray, 16, 8)
 print("\nExample 3 output:")
 for pf in range(0,16):
     print("Rhoc={:.5e}, M={:.4f}, R={:.4f}, I={:.4f}, Lambda={:.4f}".format(
-		Results[pf].Rho,
-		Results[pf].M,
-		Results[pf].r,
-		Results[pf].I,
-		Results[pf].Lambda))
+        Results[pf].Rho,
+        Results[pf].M,
+        Results[pf].r,
+        Results[pf].I,
+        Results[pf].Lambda))
 
-print("Done\n")
+print("\nDone\n")
