@@ -21,12 +21,15 @@ ComputeStatus_t ComputeStatus={0,0,0,
 RungeKutta_RK5L_roll,RungeKutta_RK5L_join,
 RungeKutta_RK5L_roll_s,RungeKutta_RK5L_join_s};
 
-double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT) {
+double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT, int *ref) {
 	if(cp<EoS->Pmin) {
 		return -1;
 	}
 	double logp=log10(cp),logrho,crho;
-	int n=EoS->length-1;
+	int refmax=EoS->length-1;
+	int n=refmax;
+	n=((*ref)+2)<n?((*ref)+2):n;
+	for(;n<refmax+1 && logp>EoS->lgP[n];n++);
 	for(;n>0;n--)
 	{
 		if(logp>EoS->lgP[n-1]) {
@@ -34,11 +37,12 @@ double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT) {
 			crho=pow(10,logrho);
 			/*compute local speed of sound*/
 			*VsOUT=cp/crho*(EoS->lgP[n]-EoS->lgP[n-1])/(EoS->lgRho[n]-EoS->lgRho[n-1]);
+			*ref=n-1;
 			return(crho);
 		}
 	}
 	fprintf(stderr,"%s interrupted by interp_p2rho(), reason: small P!\n", EoS->FilePath);
-	return -1;
+	return 0;
 }
 
 double interp_rho2p(EoS_t *EoS, double crho) {
@@ -56,16 +60,20 @@ double interp_rho2p(EoS_t *EoS, double crho) {
 		}
 	}
 	fprintf(stderr,"%s interrupted by interp_rho2p(), reason: small Rho!\n", EoS->FilePath);
-	return -1;
+	return 0;
 }
 
-double interp_p2rho_SI(EoS_t *EoS, double cp) {
+double interp_p2rho_SI(EoS_t *EoS, double cp, int *ref) {
     double logp=log10(cp),logrho,crho;
-    int n=EoS->length-1;
+	int refmax=EoS->length-1;
+	int n=refmax;
+	n=((*ref)+2)<n?((*ref)+2):n;
+	for(;n<refmax+1 && logp>EoS->lgP[n];n++);
     for(;n>0;n--){
         if(logp>EoS->lgP_SI[n-1]){
             logrho=(logp-EoS->lgP_SI[n-1])*(EoS->lgRho_SI[n]-EoS->lgRho_SI[n-1])/(EoS->lgP_SI[n]-EoS->lgP_SI[n-1])+EoS->lgRho_SI[n-1];
             crho=pow(10,logrho);
+			*ref=n-1;
             return(crho);
         }
     }
@@ -118,9 +126,9 @@ int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X
 }
 
 /*Core function in statNS*/
-int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X) {
+int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref) {
 	double Vs;
-	double Rho=interp_p2rho(EoS, X->P,&Vs);
+	double Rho=interp_p2rho(EoS, X->P,&Vs, ref);
 	if(Rho<0){
 		return -1;
 	}
@@ -132,15 +140,26 @@ int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X) {
 	return 0;
 }
 
-int RungeKutta_RK4_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X) {
+int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X, int *ref) {
+	double Vs;
+	double Rho=interp_p2rho(EoS, X->P,&Vs, ref);
+	if(Rho<0){
+		return -1;
+	}
+	K->M = 4.0*pi*Rho*r*r;
+	K->P = (Rho+X->P)*(X->M+4*pi*r*r*r*(X->P))/(2*(X->M)*r-r*r);
+	return 0;
+}
+
+int RungeKutta_RK4_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
-	if(dFunc(EoS,&K[0], r, X)){return -1;}
+	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_add(&rkVar, h/2, &K[0], X);
-	if(dFunc(EoS,&K[1], r+h/2, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[1], r+h/2, &rkVar, ref)){return -1;}
 	RungeKutta_Array_add(&rkVar, h/2, &K[1], X);
-	if(dFunc(EoS,&K[2], r+h/2, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[2], r+h/2, &rkVar, ref)){return -1;}
 	RungeKutta_Array_add(&rkVar, h, &K[2], X);
-	if(dFunc(EoS,&K[3], r+h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[3], r+h, &rkVar, ref)){return -1;}
 	return 0;
 }
 
@@ -153,21 +172,21 @@ int RungeKutta_RK4_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	return 0;
 }
 
-int RungeKutta_RK4M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X) {
+int RungeKutta_RK4M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
 	double H_1[1]={h/2};
 	double H_2[2]={0,h/2};
 	double H_2M[2]={-h,2*h};
 	double H_3[3]={0,0,h};
-	if(dFunc(EoS,&K[0], r, X)){return -1;}
+	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_1, K, X,1);
-	if(dFunc(EoS,&K[1], r+h/2, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[1], r+h/2, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_2, K, X,2);
-	if(dFunc(EoS,&K[2], r+h/2, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[2], r+h/2, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_3, K, X,3);
-	if(dFunc(EoS,&K[3], r+h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[3], r+h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2M,K,X,2);
-	if(dFunc(EoS,&K[4], r+h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[4], r+h, &rkVar, ref)){return -1;}
 	return 0;
 }
 
@@ -181,24 +200,24 @@ int RungeKutta_RK4M_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	return 0;
 }
 
-int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X) {
+int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
 	double H_1[1]={0.25*h};
 	double H_2[2]={0.093750*h,0.281250*h};
 	double H_3[3]={1932.0*h/2179,-7200.0*h/2179,7296.0*h/2179};
 	double H_4[4]={439.0*h/216,-8*h,3680.0*h/513,-845.0*h/4104};
 	double H_5[5]={-8.0*h/27,2*h,-3544.0*h/2565,1859.0*h/4104,-11.0*h/40};
-	if(dFunc(EoS,&K[0], r, X)){return -1;}
+	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-	if(dFunc(EoS,&K[1], r+0.25*h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[1], r+0.25*h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-	if(dFunc(EoS,&K[2], r+0.375*h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[2], r+0.375*h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-	if(dFunc(EoS,&K[3], r+12.0*h/13, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[3], r+12.0*h/13, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-	if(dFunc(EoS,&K[4], r+h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[4], r+h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-	if(dFunc(EoS,&K[5], r+0.5*h, &rkVar)){return -1;}
+	if(dFunc(EoS,&K[5], r+0.5*h, &rkVar, ref)){return -1;}
 	return 0;
 }
 
@@ -212,24 +231,24 @@ int RungeKutta_RK5F_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	return 0;
 }
 
-int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X){
+int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref){
 	RK_Arr_t rkVar;
 	double H_1[1]={0.2*h};
 	double H_2[2]={0.075000*h,0.225000*h};
 	double H_3[3]={0.3*h,-0.9*h,1.2*h};
 	double H_4[4]={226.0/729*h,-25.0/27*h,880.0/729*h,55.0/729*h};
 	double H_5[5]={-181.0/270*h,2.5*h,-266.0/297*h,-91.0/27*h,189.0/55*h};
-	if(dFunc(EoS, &K[0], r, X)){return -1;}
+	if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-	if(dFunc(EoS, &K[1], r+0.2*h, &rkVar)){return -1;}
+	if(dFunc(EoS, &K[1], r+0.2*h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-	if(dFunc(EoS, &K[2], r+0.3*h, &rkVar)){return -1;}
+	if(dFunc(EoS, &K[2], r+0.3*h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-	if(dFunc(EoS, &K[3], r+0.6*h, &rkVar)){return -1;}
+	if(dFunc(EoS, &K[3], r+0.6*h, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-	if(dFunc(EoS, &K[4], r+2.0*h/3, &rkVar)){return -1;}
+	if(dFunc(EoS, &K[4], r+2.0*h/3, &rkVar, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-	if(dFunc(EoS, &K[5], r+h, &rkVar)){return -1;}
+	if(dFunc(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
 	return 0;
 }
 
@@ -243,24 +262,24 @@ int RungeKutta_RK5M_join(RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	return 0;
 }
 
-int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X) {
+int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
     double H_1[1]={0.08333333333333333*h};
     double H_2[2]={-0.125*h, 0.375*h};
     double H_3[3]={0.6*h,-0.9*h,0.8*h};
     double H_4[4]={0.4875*h,-0.45*h,0.15*h,0.5625*h};
     double H_5[5]={-1.685714285714286*h,1.885714285714286*h,1.371428571428571*h,-1.714285714285714*h,1.142857142857143*h};
-    if(dFunc(EoS, &K[0], r, X)){return -1;}
+    if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-    if(dFunc(EoS, &K[1], r+0.083333333333333333*h, &rkVar)){return -1;}
+    if(dFunc(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-    if(dFunc(EoS, &K[2], r+0.25*h, &rkVar)){return -1;}
+    if(dFunc(EoS, &K[2], r+0.25*h, &rkVar,ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-    if(dFunc(EoS, &K[3], r+0.5*h, &rkVar)){return -1;}
+    if(dFunc(EoS, &K[3], r+0.5*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-    if(dFunc(EoS, &K[4], r+0.75*h, &rkVar)){return -1;}
+    if(dFunc(EoS, &K[4], r+0.75*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-    if(dFunc(EoS, &K[5], r+h, &rkVar)){return -1;}
+    if(dFunc(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
     return 0;
 }
 
@@ -314,24 +333,24 @@ int RungeKutta_Array_adds_s (RK_Arr_s *Result, double *h, RK_Arr_s *K, RK_Arr_s 
 	return 0;
 }
 
-int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X) {
+int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X, int *ref) {
 	RK_Arr_s rkVar;
     double H_1[1]={0.08333333333333333*h};
     double H_2[2]={-0.125*h, 0.375*h};
     double H_3[3]={0.6*h,-0.9*h,0.8*h};
     double H_4[4]={0.4875*h,-0.45*h,0.15*h,0.5625*h};
     double H_5[5]={-1.685714285714286*h,1.885714285714286*h,1.371428571428571*h,-1.714285714285714*h,1.142857142857143*h};
-    if(dFunc_s(EoS, &K[0], r, X)){return -1;}
+    if(dFunc_s(EoS, &K[0], r, X, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_1,K,X,1);
-    if(dFunc_s(EoS, &K[1], r+0.083333333333333333*h, &rkVar)){return -1;}
+    if(dFunc_s(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_2,K,X,2);
-    if(dFunc_s(EoS, &K[2], r+0.25*h, &rkVar)){return -1;}
+    if(dFunc_s(EoS, &K[2], r+0.25*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_3,K,X,3);
-    if(dFunc_s(EoS, &K[3], r+0.5*h, &rkVar)){return -1;}
+    if(dFunc_s(EoS, &K[3], r+0.5*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_4,K,X,4);
-    if(dFunc_s(EoS, &K[4], r+0.75*h, &rkVar)){return -1;}
+    if(dFunc_s(EoS, &K[4], r+0.75*h, &rkVar, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_5,K,X,5);
-    if(dFunc_s(EoS, &K[5], r+h, &rkVar)){return -1;}
+    if(dFunc_s(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
     return 0;
 }
 
@@ -343,16 +362,7 @@ int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K) {
     return 0;
 }
 
-int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X) {
-	double Vs;
-	double Rho=interp_p2rho(EoS, X->P,&Vs);
-	if(Rho<0){
-		return -1;
-	}
-	K->M = 4.0*pi*Rho*r*r;
-	K->P = (Rho+X->P)*(X->M+4*pi*r*r*r*(X->P))/(2*(X->M)*r-r*r);
-	return 0;
-}
+
 
 double getM_s(EoS_t *EoS, double RhocSI) {
 	
@@ -361,25 +371,25 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho);
-	int pf=0;
+	int pf=0, interpRef=EoS->length-1;
 	RK_Arr_s X={p,m};
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -388,7 +398,7 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -396,7 +406,7 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	/*use a small stepsize to reach the surface*/
 	h=2.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -417,25 +427,25 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho), y=2.0, I=0.0, Ag00=1.0;
-	int pf=0;
+	int pf=0, interpRef=EoS->length-1;
 	RK_Arr_t X={p,m,I,Ag00,y};
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -444,7 +454,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -452,7 +462,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*use a small stepsize to reach the surface*/
 	h=2.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -675,7 +685,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 	double H1,H0,K,W,X,F,V,Dv,gamma,Dp,N;
 	double DH11,DK1,DW1,DX1,H01,H02,K1,K2,x,X1,X2,Xp1,Xp2,W1,W2,V1,V2,V01,V02,V0;
 	double w,wcheck,o[2],wi,aR,bR,gR,hR,kR,n,Y1,Y2,Z,DZ,DDZ,VZ,Ar1,Ar2,Ai1,Ai2,ar,ai,Ar[2],Ai[2],Br[2],Bi[2];
-	int t,q,wpf,rpf,pfEnd,n4,status=0;
+	int t,q,wpf,rpf,pfEnd,n4,status=0,interpRef=EoS->length-1;
 
 	double *mfile,*pfile,*rhofile,*Bfile,*Bcor,*Wfile,*Wfile1,*Wfile2,*Vfile,*Vfile1,*Vfile2;
 	mfile=auxSpace->mfile;
@@ -715,15 +725,15 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		A=1/(1-2*m*Gc2/r);
 		p1=fp(r,p,e,m);
 		m1=fm(r,e);
-		if((p+dr*p1/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p1/2); else break;
+		if((p+dr*p1/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p1/2,&interpRef); else break;
 		B1=Bf(r,p,m,B);
 		p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
 		m2=fm(r+dr/2,e);
-		if((p+dr*p2/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p2/2); else break;
+		if((p+dr*p2/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p2/2,&interpRef); else break;
 		B2=Bf(r+dr/2,p+dr*p1/2,m+dr*m1/2,B+dr*B1/2);
 		p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
 		m3=fm(r+dr/2,e);
-		if((p+dr*p3)>pressure) e=interp_p2rho_SI(EoS,p+dr*p3); else break;
+		if((p+dr*p3)>pressure) e=interp_p2rho_SI(EoS,p+dr*p3,&interpRef); else break;
 		B3=Bf(r+dr/2,p+dr*p2/2,m+dr*m2/2,B+dr*B2/2);
 		p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
 		m4=fm(r+dr,e);
@@ -732,7 +742,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		DDf=-(4/r*Df+J*Df+4/r*J*f);
 		I=I-2.0/3*f*J/sqrt(A*B)*r*r*r*dr;
 		p=p+dr*(p1+2*p2+2*p3+p4)/6;
-		e=interp_p2rho_SI(EoS,p);
+		e=interp_p2rho_SI(EoS,p,&interpRef);
 		m=m+dr*(m1+2*m2+2*m3+m4)/6;
 		B=B+dr*(B1+2*B2+2*B3+B4)/6;
 		f=f+Df*dr;
@@ -1009,7 +1019,7 @@ int fmode_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, i
 double getM_fm(EoS_t *EoS, double RhocSI){
     double dr=0.5;
     double r,p,e,m,m1,m2,m3,m4,p1,p2,p3,p4,p_surf;
-    int pf;
+    int pf, interpRef=EoS->length;
 
     p_surf=pow(10,EoS->lgP_SI[0]);
     r=1.0;
@@ -1024,17 +1034,17 @@ double getM_fm(EoS_t *EoS, double RhocSI){
 
         p1=fp(r,p,e,m);
         m1=fm(r,e);
-        if((p+dr*p1/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p1/2); else break;
+        if((p+dr*p1/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p1/2,&interpRef); else break;
         p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
         m2=fm(r+dr/2,e);
-        if((p+dr*p2/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p2/2); else break;
+        if((p+dr*p2/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p2/2,&interpRef); else break;
         p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
         m3=fm(r+dr/2,e);
-        if((p+dr*p3)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p3); else break;
+        if((p+dr*p3)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p3,&interpRef); else break;
         p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
         m4=fm(r+dr,e);
         p=p+dr*(p1+2*p2+2*p3+p4)/6;
-        e=interp_p2rho_SI(EoS,p);
+        e=interp_p2rho_SI(EoS,p,&interpRef);
         m=m+dr*(m1+2*m2+2*m3+m4)/6;
     }
     return m/Msun;
