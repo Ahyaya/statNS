@@ -26,10 +26,8 @@ double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT, int *ref) {
 		return -1;
 	}
 	double logp=log10(cp),logrho,crho;
-	int refmax=EoS->length-1;
-	int n=refmax;
-	n=((*ref)+2)<n?((*ref)+2):n;
-	for(;n<refmax+1 && logp>EoS->lgP[n];n++);
+	int n=EoS->length-1;
+	n=((*ref)+8)<n?((*ref)+8):n;
 	for(;n>0;n--)
 	{
 		if(logp>EoS->lgP[n-1]) {
@@ -65,10 +63,8 @@ double interp_rho2p(EoS_t *EoS, double crho) {
 
 double interp_p2rho_SI(EoS_t *EoS, double cp, int *ref) {
     double logp=log10(cp),logrho,crho;
-	int refmax=EoS->length-1;
-	int n=refmax;
-	n=((*ref)+2)<n?((*ref)+2):n;
-	for(;n<refmax+1 && logp>EoS->lgP[n];n++);
+	int n=EoS->length-1;
+	n=((*ref)+8)<n?((*ref)+8):n;
     for(;n>0;n--){
         if(logp>EoS->lgP_SI[n-1]){
             logrho=(logp-EoS->lgP_SI[n-1])*(EoS->lgRho_SI[n]-EoS->lgRho_SI[n-1])/(EoS->lgP_SI[n]-EoS->lgP_SI[n-1])+EoS->lgRho_SI[n-1];
