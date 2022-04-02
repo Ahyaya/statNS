@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "src/statNS.h"
+#include "include/statNS.h"
 
 int main(int argc, char *argv[]){
 	int pf;

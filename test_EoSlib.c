@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <dirent.h>
 
-#include "src/statNS.h"
+#include "include/statNS.h"
 
 int main(){
 

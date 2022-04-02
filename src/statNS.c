@@ -5,7 +5,7 @@
 #include <math.h>
 #include <pthread.h>
 
-#include "statNS.h"
+#include "../include/statNS.h"
 
 static const double pi=3.14159265358979, 
 			  G=6.673e-11,
