@@ -1,0 +1,3 @@
+shared lib files will be generated here, including:
+libstatNS.so (dynamic)
+libstatNS.a (static)

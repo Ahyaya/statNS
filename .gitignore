@@ -1,0 +1,7 @@
+*.out
+*.exe
+*.so
+*.a
+__pycache__/*
+EoS_lib/test_EoSgen.txt
+*.DS_Store

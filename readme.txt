@@ -1,3 +1,20 @@
+编译与测试方法：
+
+仅编译出库文件，不进行测试
+make lib
+
+编译+测试
+make test
+
+删除编译生成文件
+make clean
+make cleanall (会把生成的库文件也删除)
+
+
+================================
+-- 老方法
+================================
+
 在你的C语言程序中调用statNS库的初等方法：
 
 gcc example/test.c lib/libstatNS.so -o test.out
@@ -48,6 +65,19 @@ DOI https://doi.org/10.1103/PhysRevC.99.045806
  English version:
 ================================================
 
+Type the following command in shell to compile and test
+
+make lib (make shared libs only)
+
+make test (make libs and test)
+
+make clean (clean workspace)
+
+make cleanall (clean all generated files including the shared libs)
+
+
+How to use the lib with your own codes?
+
 Simplest way to compile and use statNS code in C langugue (QUICK compile):
 gcc test.c lib/libstatNS.so -o test.out
 
@@ -73,7 +103,7 @@ gcc src/statNS.c -lm -lpthread -shared -fPIC -o lib/libstatNS.so
 
 re-compile the library is necessary for the following reasons:
 1) libstatNS.so is damaged or incompatiable with your operation system, it needs to be re-compiled
-2) you want to change some function or add your own function in the library
+2) you want to change some functionality or add your own functionality in the library
 
 You are free to copy/modify/publish our code. 
 If you found it helpful, please cite our work correctly:
