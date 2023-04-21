@@ -1,5 +1,4 @@
 /*
-*	
 *	Neutron Star computation code to derive:
 *       mass
 *       radius
@@ -7,7 +6,7 @@
 *       tidal deformability
 *       f-mode frequency
 *
-*	version Sinky
+*	version Cleveland
 *
 *	this code is tested on CentOS-8 with gcc 10.3.1
 *
@@ -44,6 +43,11 @@
 
 #define EOS_MAX_LENGTH 2048
 #define ARXIV_MAX_LENGTH 2048
+
+#ifndef _AMEOS_H
+#define _AMEOS_H
+#endif
+#define PT_LENGTH 5166
 
 struct statNS_EoS_t {
 	int length;
@@ -102,12 +106,6 @@ struct statNS_Asset_t {
 };
 typedef struct statNS_Asset_t	CompactStar_t;
 
-struct statNS_RK_Arr_s {
-	double P;
-	double M;
-};
-typedef struct statNS_RK_Arr_s	RK_Arr_s;
-
 struct statNS_RK_Arr_t {
 	double P;
 	double M;
@@ -152,16 +150,12 @@ struct fmodeplan_t {
 };
 typedef struct fmodeplan_t fmodeplan_t;
 
-struct statNS_ComputeStatus_t {
-	int RkStop;
-	int AllStop;
-	double RkErr;
+struct statNS_RK_plan_t {
 	int (*K_roll)(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
 	int (*X_join)(RK_Arr_t *Result, double h, RK_Arr_t *K);
-	int (*K_roll_s)(EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X, int *ref);
-	int (*X_join_s)(RK_Arr_s *Result, double h, RK_Arr_s *K);
+	double (*X_join_ec)(RK_Arr_t *Result, double h, RK_Arr_t *K);
 };
-typedef struct statNS_ComputeStatus_t	ComputeStatus_t;
+typedef struct statNS_RK_plan_t	RK_plan_t;
 
 struct statNS_ArXiv_t {
 	int length;
@@ -176,7 +170,7 @@ typedef struct statNS_ArXiv_t	ArXiv_t;
 /*Low level function*/
 
 int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref);
-int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X, int *ref);
+int dFunc_s(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref);
 
 double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT, int *ref);
 double interp_rho2p(EoS_t *EoS, double crho);
@@ -184,8 +178,8 @@ double interp_p2rho_SI(EoS_t *EoS, double cp, int *ref);
 double interp_rho2p_SI(EoS_t *EoS, double crho);
 
 int RungeKutta_Array_add (RK_Arr_t *Result, double h, RK_Arr_t *K, RK_Arr_t *X);
-int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X, int dim);
-int RungeKutta_Array_adds_s (RK_Arr_s *Result, double *h, RK_Arr_s *K, RK_Arr_s *X, int dim);
+int RungeKutta_Array_adds (RK_Arr_t *Result, double *H, RK_Arr_t *K, RK_Arr_t *X, int dim);
+int RungeKutta_Array_adds_s (RK_Arr_t *Result, double *H, RK_Arr_t *K, RK_Arr_t *X, int dim);
 
 int loadEoS(EoS_t *EoS, char *Path);
 
@@ -197,11 +191,23 @@ int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 int RungeKutta_RK5F_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
 int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+
+/*Postscript with _ec mean join Runge Kutta array with error control*/
+/*Test features only build for the Numeric Computation Course in SYSU*/
+double RungeKutta_RK4M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
+double RungeKutta_RK5F_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
+double RungeKutta_RK5M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
+
+/*Default choice for RK_plan_t is the RK5L algorithm*/
+/*Notice that it is faster, but it simply has no error control capability*/
 int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
 int RungeKutta_RK5L_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
-int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X, int *ref);
-int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K);
+/*Postscript with _s mean RK_plan_t call dFunc_s() instead of dFunc()*/
+/*also, join_s() calls RK_Array_adds_s() instead of RK_Array_adds()*/
+/*dFunc_s() and join_s() would only calculate P and M, thus faster*/
+int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
+int RungeKutta_RK5L_join_s (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
 /*fmode dedicated function*/
 /*strongly not recommend to modify them!!*/

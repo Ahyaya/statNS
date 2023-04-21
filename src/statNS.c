@@ -5,9 +5,6 @@
 #include <math.h>
 #include <pthread.h>
 
-#include "../include/nvdata.h"
-#include "../include/ptdata.h"
-
 #include "../include/statNS.h"
 
 static const double pi=3.14159265358979, 
@@ -19,14 +16,22 @@ static const double pi=3.14159265358979,
 					Gc4=8.26110825251e-45,
 					Mscale=2.033931261665867e5;
 
+extern double nvEoS_E_NU[];
+extern double nvEoS_P_NU[];
+extern double nvEoS_D_NU[];
+extern double KsymTotal[];
+extern double JsymTotal[];
+extern double J0Total[];
+extern double RhoTTotal[];
+extern double PTTotal[];
 
-ComputeStatus_t ComputeStatus={0,0,0,
-RungeKutta_RK5L_roll,RungeKutta_RK5L_join,
-RungeKutta_RK5L_roll_s,RungeKutta_RK5L_join_s};
+RK_plan_t RK_plan_default = {RungeKutta_RK5L_roll, RungeKutta_RK5L_join};
+
+RK_plan_t RK_plan_simple = {RungeKutta_RK5L_roll_s, RungeKutta_RK5L_join_s};
 
 static const EoS_opt_t EoS_default_opt = {-1,-1,-1,-1,0.025,10.0};
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t statNS_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void set_EoS_default_opt(EoS_opt_t *opt){
 	opt->secure=-1;
@@ -68,7 +73,7 @@ int genAmEoS(EoS_t *eos, double XL, double Ksym, double Jsym, double J0, EoS_opt
 	double PMU,ERhoMU,PL,P,ERhoL,ERho,dpde,Ec=0,PC=-100;
 	
 	n=21*41*((int) ((Ksym+400)/100.0+0.5))+41*((int) ((Jsym+200)/50.0+0.5))+((int) ((J0+400)/20.0+0.5));
-	if (n>-1 && n<PtLen){
+	if (n>-1 && n<PT_LENGTH){
 		RhoT=RhoTTotal[n];
 	}else{
 		fprintf(stderr,"RhoT fast grid error\n");
@@ -333,7 +338,7 @@ int RungeKutta_Array_add (RK_Arr_t *Result, double h, RK_Arr_t *K, RK_Arr_t *X) 
 	return 0;
 }
 
-int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X, int dim) {
+int RungeKutta_Array_adds (RK_Arr_t *Result, double *H, RK_Arr_t *K, RK_Arr_t *X, int dim) {
 	int pf;
 	Result->P=X->P;
 	Result->M=X->M;
@@ -342,11 +347,11 @@ int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X
 	Result->Ag00=X->Ag00;
 
 	for (pf=0; pf<dim; ++pf){
-		Result->P+=h[pf]*((K+pf)->P);
-		Result->M+=h[pf]*((K+pf)->M);
-		Result->I+=h[pf]*((K+pf)->I);
-		Result->y+=h[pf]*((K+pf)->y);
-		Result->Ag00+=h[pf]*((K+pf)->Ag00);
+		Result->P+=H[pf]*((K+pf)->P);
+		Result->M+=H[pf]*((K+pf)->M);
+		Result->I+=H[pf]*((K+pf)->I);
+		Result->y+=H[pf]*((K+pf)->y);
+		Result->Ag00+=H[pf]*((K+pf)->Ag00);
 	}
 	return 0;
 }
@@ -366,7 +371,7 @@ int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref) {
 	return 0;
 }
 
-int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X, int *ref) {
+int dFunc_s(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref) {
 	double Vs;
 	double Rho=interp_p2rho(EoS, X->P, &Vs, ref);
 	if(Rho<0){
@@ -422,8 +427,6 @@ int RungeKutta_RK4M_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 4);
 	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
 	/*dim=0 means copy the array*/
-	/*ComputeStatus.RkErr=(-2*(K[1].P)+2*(K[2].P)+(K[3].P)-(K[4].P))/(K[0].P+2*(K[1].P)+2*(K[2].P)+K[3].P);
-	ComputeStatus.RkErr=ComputeStatus.RkErr>0?ComputeStatus.RkErr:(-ComputeStatus.RkErr);*/
 	return 0;
 }
 
@@ -452,9 +455,8 @@ int RungeKutta_RK5F_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
 	double H[6]={16.0/135*h, 0, 6656.0/12825*h, 28561.0/56430*h, - 0.18*h, 2.0/55*h};
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
-	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);/*dim=0 means copy the array*/
-	/*ComputeStatus.RkErr=(0.0027778*(K[0].P) - 0.0299415*(K[2].P)  - 0.0291999*(K[3].P) + 0.0200000*(K[4].P) +  0.0363636*(K[5].P))/(16.0/135*(K[0].P) + 6656.0/12825*(K[2].P) + 28561.0/56430*(K[3].P) - 0.18*(K[4].P) + 2.0/55*(K[5].P) );
-	ComputeStatus.RkErr=ComputeStatus.RkErr>0?ComputeStatus.RkErr:(-ComputeStatus.RkErr);*/
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
 	return 0;
 }
 
@@ -479,16 +481,61 @@ int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 	return 0;
 }
 
-int RungeKutta_RK5M_join(RK_Arr_t *Result, double h, RK_Arr_t *K) {
+int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
 	double H[6]={31.0/540*h, 0, 190.0/297*h, -145.0/108*h, 351.0/220*h, 0.05*h};
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
 	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
 	/*dim=0 means copy the array*/
-	/*ComputeStatus.RkErr=(-0.030556*(K[0].P) + 0.158730*(K[2].P)  - 0.763889*(K[3].P) + 0.675000*(K[4].P) - 0.039286*(K[5].P))/(31.0/540*(K[0].P) + 190.0/297*(K[2].P) - 145.0/108*(K[3].P) + 351.0/220*(K[4].P) + 0.05*(K[5].P) );
-	ComputeStatus.RkErr=ComputeStatus.RkErr>0?ComputeStatus.RkErr:(-ComputeStatus.RkErr);*/
 	return 0;
 }
+
+
+/*Postscript with _ec mean join Runge Kutta array with error control*/
+/*Test features only build for the Numeric Computation Course in SYSU*/
+
+double RungeKutta_RK4M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
+	double H[4]={h/6,h/3,h/3,h/6};
+	RungeKutta_Array_adds(&rkVar, H, K, Result, 4);
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
+
+	/*Error Estimate*/
+	double RkError=(-2*(K[1].P)+2*(K[2].P)+(K[3].P)-(K[4].P))/(K[0].P+2*(K[1].P)+2*(K[2].P)+K[3].P);
+
+	return fabs(RkError);
+}
+
+double RungeKutta_RK5F_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
+	double H[6]={16.0/135*h, 0, 6656.0/12825*h, 28561.0/56430*h, - 0.18*h, 2.0/55*h};
+	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
+
+	/*Error Estimate*/
+	double RkError=(0.0027778*(K[0].P) - 0.0299415*(K[2].P) - 0.0291999*(K[3].P) + 0.0200000*(K[4].P) + 0.0363636*(K[5].P))/(16.0/135*(K[0].P) + 6656.0/12825*(K[2].P) + 28561.0/56430*(K[3].P) - 0.18*(K[4].P) + 2.0/55*(K[5].P) );
+
+	return fabs(RkError);
+}
+
+double RungeKutta_RK5M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
+	double H[6]={31.0/540*h, 0, 190.0/297*h, -145.0/108*h, 351.0/220*h, 0.05*h};
+	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
+
+	/*Error Estimate*/
+	double RkError=(-0.030556*(K[0].P) + 0.158730*(K[2].P) - 0.763889*(K[3].P) + 0.675000*(K[4].P) - 0.039286*(K[5].P))/(31.0/540*(K[0].P) + 190.0/297*(K[2].P) - 145.0/108*(K[3].P) + 351.0/220*(K[4].P) + 0.05*(K[5].P) );
+
+	return fabs(RkError);
+}
+
+
+/*Default choice for RK_plan_t is the RK5L algorithm*/
+/*Notice that it is faster, but it simply has no error control capability*/
 
 int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
@@ -549,20 +596,20 @@ int loadEoS(EoS_t *EoS, char *Path) {
 	return 0;
 }
 
-int RungeKutta_Array_adds_s (RK_Arr_s *Result, double *h, RK_Arr_s *K, RK_Arr_s *X, int dim) {
+int RungeKutta_Array_adds_s (RK_Arr_t *Result, double *H, RK_Arr_t *K, RK_Arr_t *X, int dim) {
 	int pf;
 	Result->P=X->P;
 	Result->M=X->M;
 
-	for (pf=0;pf<dim;pf++){
-		Result->P+=h[pf]*((K+pf)->P);
-		Result->M+=h[pf]*((K+pf)->M);
+	for (pf=0;pf<dim;++pf){
+		Result->P+=H[pf]*((K+pf)->P);
+		Result->M+=H[pf]*((K+pf)->M);
 	}
 	return 0;
 }
 
-int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_s *X, int *ref) {
-	RK_Arr_s rkVar;
+int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
+	RK_Arr_t rkVar;
     double H_1[1]={0.08333333333333333*h};
     double H_2[2]={-0.125*h, 0.375*h};
     double H_3[3]={0.6*h,-0.9*h,0.8*h};
@@ -582,17 +629,18 @@ int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_
     return 0;
 }
 
-int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K) {
-	RK_Arr_s rkVar;
+int RungeKutta_RK5L_join_s (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
     double H[6]={0.077777777777777777778*h,0,0.355555555555555555556*h,0.13333333333333333333*h,0.355555555555555555556*h,0.077777777777777777777778*h};
     RungeKutta_Array_adds_s(&rkVar, H, K, Result, 6);
-    RungeKutta_Array_adds_s(Result, H, K, &rkVar, 0);/*dim=0 means copy the array*/
+    RungeKutta_Array_adds_s(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
     return 0;
 }
 
 double getM_s(EoS_t *EoS, double RhocSI) {
 	
-	RK_Arr_s K[8];
+	RK_Arr_t K[8];
 	double h;
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
@@ -603,25 +651,25 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 		interpRef[pf] = EoS->length-1;
 	}
 	int *ref=interpRef;
-	RK_Arr_s X={p,m};
+	RK_Arr_t X={p,m};
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join_s(&X,h, K);
+		RK_plan_simple.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join_s(&X,h, K);
+		RK_plan_simple.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join_s(&X,h, K);
+		RK_plan_simple.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
 	/*end of core section*/
@@ -629,16 +677,16 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join_s(&X,h, K);
+		if(RK_plan_simple.K_roll(EoS, K, h, r, &X, ref)) break;
+		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
 
 	/*use a small stepsize to reach the surface*/
-	h=2.0/c;
+	h=1.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join_s(&X,h, K);
+		if(RK_plan_simple.K_roll(EoS, K, h, r, &X, ref)) break;
+		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
 	/*interpolate the radius at surface, according to pressure and its derivative*/
@@ -669,20 +717,20 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join(&X,h, K);
+		RK_plan_default.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join(&X,h, K);
+		RK_plan_default.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join(&X,h, K);
+		RK_plan_default.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
 	/*end of core section*/
@@ -690,16 +738,16 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join(&X,h, K);
+		if(RK_plan_default.K_roll(EoS, K, h, r, &X, ref)) break;
+		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
 
 	/*use a small stepsize to reach the surface*/
-	h=2.0/c;
+	h=1.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
-		ComputeStatus.X_join(&X,h, K);
+		if(RK_plan_default.K_roll(EoS, K, h, r, &X, ref)) break;
+		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
 	/*interpolate the radius at surface, according to pressure and its derivative*/
@@ -730,9 +778,9 @@ void *solveTOVworker (void *args) {
 	thisParams=(solveTOVplan_t *) args;
 	int section=-1, length=thisParams->length;
 	while(section<length-1){
-		pthread_mutex_lock(&mutex);
+		pthread_mutex_lock(&statNS_mutex);
 		section=(thisParams->section)++;
-		pthread_mutex_unlock(&mutex);
+		pthread_mutex_unlock(&statNS_mutex);
 		if(section>=length){
 			return 0x00;
 		}
@@ -1209,13 +1257,13 @@ void * fmode_worker (void *args){
 	fmodeplan_t *thisParams;
 	thisParams=(fmodeplan_t *) args;
 	int section=-1, workerId, length=thisParams->length;
-	pthread_mutex_lock(&mutex);
+	pthread_mutex_lock(&statNS_mutex);
 	workerId=(thisParams->workerId)++;
-	pthread_mutex_unlock(&mutex);
+	pthread_mutex_unlock(&statNS_mutex);
 	while(section<length-1){
-		pthread_mutex_lock(&mutex);
+		pthread_mutex_lock(&statNS_mutex);
 		section=(thisParams->section)++;
-		pthread_mutex_unlock(&mutex);
+		pthread_mutex_unlock(&statNS_mutex);
 		if(section>=length){
 			return 0x00;
 		}
@@ -1293,11 +1341,7 @@ double getM_fm(EoS_t *EoS, double RhocSI){
     p=interp_rho2p_SI(EoS,e);
     m=1.333333333333333*r*r*pi*e*r;
 
-    for(pf=0;p>p_surf;r+=dr,pf++){
-        if(pf>49995){
-            return 0;
-        }
-
+    for(pf=0;p>p_surf && pf<49995;r+=dr,++pf){
         p1=fp(r,p,e,m);
         m1=fm(r,e);
         if((p+dr*p1/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p1/2,ref); else break;
@@ -1313,7 +1357,7 @@ double getM_fm(EoS_t *EoS, double RhocSI){
         e=interp_p2rho_SI(EoS,p,ref+3);
         m=m+dr*(m1+2*m2+2*m3+m4)/6;
     }
-    return m/Msun;
+    return (pf<49995)*m/Msun;
 }
 
 double getMmax_fm(EoS_t *EoS) {
@@ -1434,9 +1478,9 @@ void *getM_worker (void *args) {
 	thisParams=(getMplan_t *) args;
 	int section=-1, length=thisParams->length;
 	while(section<length-1){
-		pthread_mutex_lock(&mutex);
+		pthread_mutex_lock(&statNS_mutex);
 		section=(thisParams->section)++;
-		pthread_mutex_unlock(&mutex);
+		pthread_mutex_unlock(&statNS_mutex);
 		if(section>=length){
 			return 0x00;
 		}

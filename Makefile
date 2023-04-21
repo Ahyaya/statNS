@@ -6,7 +6,7 @@ DYNLIB = lib/libstatNS.so
 STATICLIB = lib/libstatNS.a
 
 HEADERS = $(wildcard include/*.h)
-OBJECTS = src/statNS.o
+OBJECTS = src/statNS.o src/nvdata.o src/ptdata.o
 
 TESTOBJ = test.o
 
@@ -33,6 +33,7 @@ clean:
 	rm -f *.o
 	rm -f src/*.o
 	rm -f *.out
+	rm -f *.log
 
 cleanall: clean
 	rm -f lib/*.so

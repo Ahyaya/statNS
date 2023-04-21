@@ -1,5 +1,3 @@
-#define PtLen 5166
-
 const double KsymTotal[]={
 -400,
 -400,
