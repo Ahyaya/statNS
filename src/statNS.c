@@ -5,42 +5,273 @@
 #include <math.h>
 #include <pthread.h>
 
+#include "../include/nvdata.h"
+#include "../include/ptdata.h"
+
 #include "../include/statNS.h"
 
 static const double pi=3.14159265358979, 
-			  G=6.673e-11,
-			  c=2.99792458e8,
-			  Msun=1.989e30,
-			  Cri=1e-7,
-			  Gc2=7.42471382405e-28,
-			  Gc4=8.26110825251e-45,
-			  Mscale=2.033931261665867e5;
+					G=6.673e-11,
+					c=2.99792458e8,
+					Msun=1.989e30,
+					Cri=1e-7,
+					Gc2=7.42471382405e-28,
+					Gc4=8.26110825251e-45,
+					Mscale=2.033931261665867e5;
 
 
 ComputeStatus_t ComputeStatus={0,0,0,
 RungeKutta_RK5L_roll,RungeKutta_RK5L_join,
 RungeKutta_RK5L_roll_s,RungeKutta_RK5L_join_s};
 
+static const EoS_opt_t EoS_default_opt = {-1,-1,-1,-1,0.025,10.0};
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void set_EoS_default_opt(EoS_opt_t *opt){
+	opt->secure=-1;
+	opt->causality=-1;
+	opt->total_length=-1;
+	opt->core_length=-1;
+	opt->dU=0.025;
+	opt->maxU=10.0;
+	return;
+}
+
+int genAmEoS(EoS_t *eos, double XL, double Ksym, double Jsym, double J0, EoS_opt_t *opt)
+{
+	static const double XM=939.0,
+	XME=0.511,
+	XMMU=105.658,
+	Rho0=0.16,
+	HBAR=197.3286;
+	/*H=1239.8522*/
+	/*XL=58.7*/
+	if(XL<30||XL>70) return -1;
+	if(Ksym<-400||Ksym>100) return -1;
+	if(Jsym<-200||Jsym>800) return -1;
+	if(J0<-400||J0>400) return -1;
+
+	EoS_opt_t optParser;
+
+	if(opt==NULL) opt= (EoS_opt_t *) &EoS_default_opt;
+
+	if(opt->maxU < 0 && opt->dU < 0){
+		fprintf(stderr,"error: eos option conflict, dU and maxU can not take -1 flag concurrently.\n");
+		return -1;
+	}
+
+	int n,XI=0,totalU,ptrU;
+	double EN,EN1=0,ESYMRho0=31.6,E0Rho0=-15.9,T0=230,U,dU,Rho;
+	double RhoT,ESYMTH,DESYMTH,E0TH,DE0TH,beta,Rho_P,PF_P,MU_E,PF_E,PF_MU,MU_MU,delta;
+	double PFE,PFMU,RhoE,RhoMU,PP,XLAME,TE,YITAE,FAIEP,FAIEE,PE,ERhoE,XLAMMU,TMU,YITAMU,FAIMUP,FAIMUE;
+	double PMU,ERhoMU,PL,P,ERhoL,ERho,dpde,Ec=0,PC=-100;
+	
+	n=21*41*((int) ((Ksym+400)/100.0+0.5))+41*((int) ((Jsym+200)/50.0+0.5))+((int) ((J0+400)/20.0+0.5));
+	if (n>-1 && n<PtLen){
+		RhoT=RhoTTotal[n];
+	}else{
+		fprintf(stderr,"RhoT fast grid error\n");
+		return -1;
+	}
+	
+	XI=73;
+	for(n=1;n<73;n++)
+	{
+		if(RhoT-nvEoS_D_NU[n]<0)
+		{
+			XI=n;
+			break;
+		}
+	}
+
+	eos->length=0;
+
+	for(n=1;n<XI;n++)
+	{
+		eos->lgRho_SI[eos->length]=15.0+log10(nvEoS_E_NU[n]*1.7802222);
+		eos->lgP_SI[eos->length]=32.0+log10(nvEoS_P_NU[n]*1.6022);
+		eos->lgDen_SI[eos->length]=18.0+log10(nvEoS_D_NU[n]*1.6749286);
+		++(eos->length);
+	}
+
+	if(opt->total_length>0){
+		totalU=opt->total_length - eos->length;
+		dU=(opt->dU>0)?(opt->dU):((opt->maxU - RhoT/Rho0)/totalU);
+	}else if(opt->core_length>0){
+		totalU=opt->core_length;
+		dU=(opt->dU>0)?(opt->dU):((opt->maxU - RhoT/Rho0)/totalU);
+	}else{
+		if(opt->dU <0 || opt->maxU<0){
+			fprintf(stderr,"error: eos option conflict, dU or maxU was set to -1 flag while no total_length or core_length specified.\n");
+			return -1;
+		}
+		dU=opt->dU;
+		totalU=(opt->maxU - RhoT/Rho0)/dU;
+	}
+	
+	for(U=RhoT/Rho0+dU,ptrU=0;ptrU<totalU;U+=dU)
+	{
+		Rho=U*Rho0;
+		ESYMTH=(ESYMRho0+0.33333333333*XL*(U-1.0)+0.0555555556*Ksym*(U-1.0)*(U-1.0)+0.0061728395*Jsym*(U-1)*(U-1)*(U-1))/HBAR;
+		DESYMTH=0.33333333333*XL/Rho0+0.11111111111*Ksym*(Rho/(Rho0*Rho0)-1.0/Rho0)+0.01851851852*Jsym*(Rho*Rho/(Rho0*Rho0*Rho0)-2.0*Rho/(Rho0*Rho0)+1.0/Rho0);
+		E0TH=E0Rho0+0.055555556*T0*(U-1.0)*(U-1.0)+0.0061728395*J0*(U-1.0)*(U-1.0)*(U-1.0);
+		DE0TH=0.111111111*T0*(Rho/(Rho0*Rho0)-1.0/Rho0)+0.01851851852*J0*(Rho*Rho/(Rho0*Rho0*Rho0)-2.0*Rho/(Rho0*Rho0)+1.0/Rho0);
+		if(ESYMTH>0)
+		{
+			for(beta=0.0001;beta<1.0;beta+=0.0001)
+			{
+				Rho_P=0.5*(1.0-beta)*Rho;
+				PF_P=pow(3.0*pi*pi*Rho_P,0.33333333333);
+				MU_E=4.0*HBAR*ESYMTH*beta;
+				MU_MU=MU_E;
+				if(MU_E<XME) {
+					MU_E=0;
+				}else{
+					PF_E=sqrt(MU_E*MU_E-XME*XME)/HBAR;
+				}
+				if(MU_MU>XMMU){
+					PF_MU=sqrt(MU_MU*MU_MU-XMMU*XMMU)/HBAR;
+				}else{
+					PF_MU=0;
+				}
+				EN=PF_P*PF_P*PF_P-PF_E*PF_E*PF_E-PF_MU*PF_MU*PF_MU;
+				if(EN*EN1<0){
+					delta=beta;
+					PFE=PF_E;
+					PFMU=PF_MU;
+				}
+				EN1=EN;
+			}
+		}else{
+			delta=1;
+			PFE=0;
+		}
+		RhoE=0.33333333333*PFE*PFE*PFE/(pi*pi);
+		RhoMU=0.33333333333*PFMU*PFMU*PFMU/(pi*pi);		
+		PP=Rho*Rho*(DE0TH+DESYMTH*delta*delta);
+		XLAME=HBAR/XME;
+		TE=XLAME*pow((3.0*pi*pi*RhoE),0.33333333333);
+		YITAE=0.125*XME/(pi*pi*XLAME*XLAME*XLAME);
+		FAIEP=TE*sqrt(1.0+TE*TE)*(0.666666667*TE*TE-1.0)+log(TE+sqrt(1.0+TE*TE));
+		FAIEE=TE*sqrt(1.0+TE*TE)*(2.0*TE*TE+1.0)-log(TE+sqrt(1.0+TE*TE));
+		PE=YITAE*FAIEP;
+		ERhoE=YITAE*FAIEE;
+		XLAMMU=HBAR/XMMU;
+		TMU=XLAMMU*pow((3.0*pi*pi*RhoMU),0.33333333333);
+		YITAMU=0.125*XMMU/(pi*pi*XLAMMU*XLAMMU*XLAMMU);
+		FAIMUP=TMU*sqrt(1.0+TMU*TMU)*(0.666666667*TMU*TMU-1.0)+log(TMU+sqrt(1.0+TMU*TMU));
+		FAIMUE=TMU*sqrt(1.0+TMU*TMU)*(2.0*TMU*TMU+1.0)-log(TMU+sqrt(1.0+TMU*TMU));
+		PMU=YITAMU*FAIMUP;
+		ERhoMU=YITAMU*FAIMUE;
+		PL=PE+PMU;                //PRESSURE OF LEPTON
+		P=PL+PP;                       //Total PRESSURE OF BARTYON AND LEPTON
+		ERhoL=ERhoE+ERhoMU;          //ENERGY DENSITY OF LEPTON
+		ERho=Rho*(E0TH+ESYMTH*HBAR*delta*delta)+Rho*XM+ERhoL; //Total ENERGY DENSITY
+//------------------------------------CAUSALITY-------------------------------------
+		dpde=(P-PC)/(ERho-Ec);
+//----------------------------------OUTPUT THE EOS----------------------------------
+        if(P-nvEoS_P_NU[XI]<0.002){
+			if(U>4.0){
+				fprintf(stderr,"error: too soft to splice nv EoS\n");
+				return -1;
+			}
+			continue;
+		}
+		if(P>PC && (dpde<2.0||opt->causality==0)){
+			eos->lgRho_SI[eos->length]=15.0+log10(ERho*1.7802222);
+			eos->lgP_SI[eos->length]=32.0+log10(P*1.6022);
+			eos->lgDen_SI[eos->length]=18.0+log10(Rho*1.6749286);
+			++(eos->length);++ptrU;
+			PC=P;Ec=ERho;
+		}else{
+			if(U<4.0){
+				fprintf(stderr,"error: causality voilated at U=%lf (rejected)\n",U);
+				return -1;
+			}
+			if(!opt->secure){
+				fprintf(stderr,"error: secure reset!\n");
+				return -1;
+			}
+			if(opt->total_length>0){
+				set_EoS_default_opt(&optParser);
+				optParser.maxU=U-3*dU;
+				optParser.total_length=opt->total_length;
+				optParser.dU=-1;	/*disable manual dU to auto specify one by setting total_length*/
+				fprintf(stderr,"warning: causality voilated at U=%lf (accepted)\n",U);
+				fprintf(stderr,"warning: dU is changed automatically\n");
+				optParser.secure=0;
+				return genAmEoS(eos, XL, Ksym, Jsym, J0, &optParser);
+			}
+			if(opt->core_length>0){
+				set_EoS_default_opt(&optParser);
+				optParser.maxU=U-3*dU;
+				optParser.core_length=opt->core_length;
+				optParser.dU=-1;	/*disable manual dU to auto specify one by setting core_length*/
+				fprintf(stderr,"warning: causality voilated at U=%lf (accepted)\n",U);
+				fprintf(stderr,"warning: dU is changed automatically\n");
+				optParser.secure=0;
+				return genAmEoS(eos, XL, Ksym, Jsym, J0, &optParser);
+			}
+			
+			break;
+		}
+		
+	}
+
+	eos->RhomaxSI=pow(10,eos->lgRho_SI[eos->length-1]);
+	eos->RhominSI=pow(10,eos->lgRho_SI[0]);
+
+	for(n=0;n<eos->length;++n){
+		eos->lgRho[n]=eos->lgRho_SI[n]-10.175607290470733;
+		eos->lgP[n]=eos->lgP_SI[n]-27.129849799910058;
+		eos->lgDen[n]=eos->lgDen_SI[n]-10.175607290470733;
+	}
+
+	return 0;
+}
+
+int saveEoS(EoS_t *eos, char pathname[]){
+	FILE *fp;
+	int ptr;
+	char auxPath[128], *path;
+	if(pathname==NULL){
+		sprintf(auxPath,"AM%03x%03x%03x%03x.eos",(int) eos->XL,(int) eos->Ksym+400,(int) eos->Jsym+200,(int) eos->J0+400);
+		path=auxPath;
+	}else{
+		path=pathname;
+	}
+
+	if((fp=fopen(path,"w"))==NULL){
+		fprintf(stderr,"unable to write %s\n",path);
+		return -1;
+	}
+	for(ptr=0;ptr<(eos->length);++ptr){
+		fprintf(fp,"%.8lf\t%.8lf\t%.8lf\n",eos->lgRho_SI[ptr],eos->lgP_SI[ptr],eos->lgDen_SI[ptr]);
+	}
+	fclose(fp);
+	return 0;
+}
+
 double interp_p2rho(EoS_t *EoS, double cp, double *VsOUT, int *ref) {
-	if(cp<EoS->Pmin) {
+	if(cp < EoS->Pmin) {
 		return -1;
 	}
 	double logp=log10(cp),logrho,crho;
-	int n=EoS->length-1;
-	n=((*ref)+8)<n?((*ref)+8):n;
-	for(;n>0;n--)
+	int n = *ref;
+	for(;n>0;--n)
 	{
-		if(logp>EoS->lgP[n-1]) {
+		if(logp > EoS->lgP[n-1]) {
 			logrho=(logp-EoS->lgP[n-1])*(EoS->lgRho[n]-EoS->lgRho[n-1])/(EoS->lgP[n]-EoS->lgP[n-1])+EoS->lgRho[n-1];
 			crho=pow(10,logrho);
 			/*compute local speed of sound*/
 			*VsOUT=cp/crho*(EoS->lgP[n]-EoS->lgP[n-1])/(EoS->lgRho[n]-EoS->lgRho[n-1]);
-			*ref=n-1;
+			*ref=n;
 			return(crho);
 		}
 	}
-	fprintf(stderr,"%s interrupted by interp_p2rho(), reason: small P!\n", EoS->FilePath);
-	return 0;
+	//fprintf(stderr,"%s interrupted by interp_p2rho(), reason: small P!\n", EoS->FilePath);
+	return -1;
 }
 
 double interp_rho2p(EoS_t *EoS, double crho) {
@@ -57,24 +288,23 @@ double interp_rho2p(EoS_t *EoS, double crho) {
 			return(cp);
 		}
 	}
-	fprintf(stderr,"%s interrupted by interp_rho2p(), reason: small Rho!\n", EoS->FilePath);
-	return 0;
+	//fprintf(stderr,"%s interrupted by interp_rho2p(), reason: small Rho!\n", EoS->FilePath);
+	return -1;
 }
 
 double interp_p2rho_SI(EoS_t *EoS, double cp, int *ref) {
     double logp=log10(cp),logrho,crho;
-	int n=EoS->length-1;
-	n=((*ref)+8)<n?((*ref)+8):n;
+	int n = *ref;
     for(;n>0;n--){
         if(logp>EoS->lgP_SI[n-1]){
             logrho=(logp-EoS->lgP_SI[n-1])*(EoS->lgRho_SI[n]-EoS->lgRho_SI[n-1])/(EoS->lgP_SI[n]-EoS->lgP_SI[n-1])+EoS->lgRho_SI[n-1];
             crho=pow(10,logrho);
-			*ref=n-1;
+			*ref=n;
             return(crho);
         }
     }
-    fprintf(stderr,"%s meet small pressure at interp_p2rho_fm()\n", EoS->FilePath);
-    return 0;
+    //fprintf(stderr,"%s meet small pressure at interp_p2rho_fm()\n", EoS->FilePath);
+    return -1;
 }
 
 double interp_rho2p_SI(EoS_t *EoS, double crho) {
@@ -87,8 +317,8 @@ double interp_rho2p_SI(EoS_t *EoS, double crho) {
             return(cp);
         }
     }
-    fprintf(stderr,"%s meet small density at interp_rho2p_fm()\n", EoS->FilePath);
-    return 0;
+    //fprintf(stderr,"%s meet small density at interp_rho2p_fm()\n", EoS->FilePath);
+    return -1;
 }
 /*======================================================
 *	Array adders are matrix operation function.
@@ -111,7 +341,7 @@ int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X
 	Result->y=X->y;
 	Result->Ag00=X->Ag00;
 
-	for (pf=0;pf<dim;pf++){
+	for (pf=0; pf<dim; ++pf){
 		Result->P+=h[pf]*((K+pf)->P);
 		Result->M+=h[pf]*((K+pf)->M);
 		Result->I+=h[pf]*((K+pf)->I);
@@ -124,7 +354,7 @@ int RungeKutta_Array_adds (RK_Arr_t *Result, double *h, RK_Arr_t *K, RK_Arr_t *X
 /*Core function in statNS*/
 int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref) {
 	double Vs;
-	double Rho=interp_p2rho(EoS, X->P,&Vs, ref);
+	double Rho=interp_p2rho(EoS, X->P, &Vs, ref);
 	if(Rho<0){
 		return -1;
 	}
@@ -138,7 +368,7 @@ int dFunc(EoS_t *EoS, RK_Arr_t *K, double r, RK_Arr_t *X, int *ref) {
 
 int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X, int *ref) {
 	double Vs;
-	double Rho=interp_p2rho(EoS, X->P,&Vs, ref);
+	double Rho=interp_p2rho(EoS, X->P, &Vs, ref);
 	if(Rho<0){
 		return -1;
 	}
@@ -149,13 +379,13 @@ int dFunc_s(EoS_t *EoS, RK_Arr_s *K, double r, RK_Arr_s *X, int *ref) {
 
 int RungeKutta_RK4_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref) {
 	RK_Arr_t rkVar;
-	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
+	if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_add(&rkVar, h/2, &K[0], X);
-	if(dFunc(EoS,&K[1], r+h/2, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[1], r+h/2, &rkVar, ref+1)){return -1;}
 	RungeKutta_Array_add(&rkVar, h/2, &K[1], X);
-	if(dFunc(EoS,&K[2], r+h/2, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[2], r+h/2, &rkVar, ref+2)){return -1;}
 	RungeKutta_Array_add(&rkVar, h, &K[2], X);
-	if(dFunc(EoS,&K[3], r+h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[3], r+h, &rkVar, ref+3)){return -1;}
 	return 0;
 }
 
@@ -176,13 +406,13 @@ int RungeKutta_RK4M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 	double H_3[3]={0,0,h};
 	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_1, K, X,1);
-	if(dFunc(EoS,&K[1], r+h/2, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[1], r+h/2, &rkVar, ref+1)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_2, K, X,2);
-	if(dFunc(EoS,&K[2], r+h/2, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[2], r+h/2, &rkVar, ref+2)){return -1;}
 	RungeKutta_Array_adds(&rkVar, H_3, K, X,3);
-	if(dFunc(EoS,&K[3], r+h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[3], r+h, &rkVar, ref+3)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2M,K,X,2);
-	if(dFunc(EoS,&K[4], r+h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[4], r+h, &rkVar, ref+4)){return -1;}
 	return 0;
 }
 
@@ -190,7 +420,8 @@ int RungeKutta_RK4M_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
 	double H[4]={h/6,h/3,h/3,h/6};
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 4);
-	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);/*dim=0 means copy the array*/
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
 	/*ComputeStatus.RkErr=(-2*(K[1].P)+2*(K[2].P)+(K[3].P)-(K[4].P))/(K[0].P+2*(K[1].P)+2*(K[2].P)+K[3].P);
 	ComputeStatus.RkErr=ComputeStatus.RkErr>0?ComputeStatus.RkErr:(-ComputeStatus.RkErr);*/
 	return 0;
@@ -205,15 +436,15 @@ int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 	double H_5[5]={-8.0*h/27,2*h,-3544.0*h/2565,1859.0*h/4104,-11.0*h/40};
 	if(dFunc(EoS,&K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-	if(dFunc(EoS,&K[1], r+0.25*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[1], r+0.25*h, &rkVar, ref+1)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-	if(dFunc(EoS,&K[2], r+0.375*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[2], r+0.375*h, &rkVar, ref+2)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-	if(dFunc(EoS,&K[3], r+12.0*h/13, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[3], r+12.0*h/13, &rkVar, ref+3)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-	if(dFunc(EoS,&K[4], r+h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[4], r+h, &rkVar, ref+4)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-	if(dFunc(EoS,&K[5], r+0.5*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS,&K[5], r+0.5*h, &rkVar, ref+5)){return -1;}
 	return 0;
 }
 
@@ -236,15 +467,15 @@ int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 	double H_5[5]={-181.0/270*h,2.5*h,-266.0/297*h,-91.0/27*h,189.0/55*h};
 	if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-	if(dFunc(EoS, &K[1], r+0.2*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[1], r+0.2*h, &rkVar, ref+1)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-	if(dFunc(EoS, &K[2], r+0.3*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[2], r+0.3*h, &rkVar, ref+2)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-	if(dFunc(EoS, &K[3], r+0.6*h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[3], r+0.6*h, &rkVar, ref+3)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-	if(dFunc(EoS, &K[4], r+2.0*h/3, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[4], r+2.0*h/3, &rkVar, ref+4)){return -1;}
 	RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-	if(dFunc(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
+	if(dFunc(EoS, &K[5], r+h, &rkVar, ref+5)){return -1;}
 	return 0;
 }
 
@@ -252,7 +483,8 @@ int RungeKutta_RK5M_join(RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
 	double H[6]={31.0/540*h, 0, 190.0/297*h, -145.0/108*h, 351.0/220*h, 0.05*h};
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
-	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);/*dim=0 means copy the array*/
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
 	/*ComputeStatus.RkErr=(-0.030556*(K[0].P) + 0.158730*(K[2].P)  - 0.763889*(K[3].P) + 0.675000*(K[4].P) - 0.039286*(K[5].P))/(31.0/540*(K[0].P) + 190.0/297*(K[2].P) - 145.0/108*(K[3].P) + 351.0/220*(K[4].P) + 0.05*(K[5].P) );
 	ComputeStatus.RkErr=ComputeStatus.RkErr>0?ComputeStatus.RkErr:(-ComputeStatus.RkErr);*/
 	return 0;
@@ -267,15 +499,15 @@ int RungeKutta_RK5L_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
     double H_5[5]={-1.685714285714286*h,1.885714285714286*h,1.371428571428571*h,-1.714285714285714*h,1.142857142857143*h};
     if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
-    if(dFunc(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref)){return -1;}
+    if(dFunc(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref+1)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
-    if(dFunc(EoS, &K[2], r+0.25*h, &rkVar,ref)){return -1;}
+    if(dFunc(EoS, &K[2], r+0.25*h, &rkVar,ref+2)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
-    if(dFunc(EoS, &K[3], r+0.5*h, &rkVar, ref)){return -1;}
+    if(dFunc(EoS, &K[3], r+0.5*h, &rkVar, ref+3)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
-    if(dFunc(EoS, &K[4], r+0.75*h, &rkVar, ref)){return -1;}
+    if(dFunc(EoS, &K[4], r+0.75*h, &rkVar, ref+4)){return -1;}
     RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
-    if(dFunc(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
+    if(dFunc(EoS, &K[5], r+h, &rkVar, ref+5)){return -1;}
     return 0;
 }
 
@@ -338,15 +570,15 @@ int RungeKutta_RK5L_roll_s (EoS_t *EoS, RK_Arr_s *K, double h, double r, RK_Arr_
     double H_5[5]={-1.685714285714286*h,1.885714285714286*h,1.371428571428571*h,-1.714285714285714*h,1.142857142857143*h};
     if(dFunc_s(EoS, &K[0], r, X, ref)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_1,K,X,1);
-    if(dFunc_s(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref)){return -1;}
+    if(dFunc_s(EoS, &K[1], r+0.083333333333333333*h, &rkVar, ref+1)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_2,K,X,2);
-    if(dFunc_s(EoS, &K[2], r+0.25*h, &rkVar, ref)){return -1;}
+    if(dFunc_s(EoS, &K[2], r+0.25*h, &rkVar, ref+2)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_3,K,X,3);
-    if(dFunc_s(EoS, &K[3], r+0.5*h, &rkVar, ref)){return -1;}
+    if(dFunc_s(EoS, &K[3], r+0.5*h, &rkVar, ref+3)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_4,K,X,4);
-    if(dFunc_s(EoS, &K[4], r+0.75*h, &rkVar, ref)){return -1;}
+    if(dFunc_s(EoS, &K[4], r+0.75*h, &rkVar, ref+4)){return -1;}
     RungeKutta_Array_adds_s(&rkVar,H_5,K,X,5);
-    if(dFunc_s(EoS, &K[5], r+h, &rkVar, ref)){return -1;}
+    if(dFunc_s(EoS, &K[5], r+h, &rkVar, ref+5)){return -1;}
     return 0;
 }
 
@@ -358,8 +590,6 @@ int RungeKutta_RK5L_join_s (RK_Arr_s *Result, double h, RK_Arr_s *K) {
     return 0;
 }
 
-
-
 double getM_s(EoS_t *EoS, double RhocSI) {
 	
 	RK_Arr_s K[8];
@@ -367,25 +597,30 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho);
-	int pf=0, interpRef=EoS->length-1;
+	int pf, interpRef[16];
+	/*maximum ref space for RK method and interp is 16*/
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	int *ref=interpRef;
 	RK_Arr_s X={p,m};
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -394,7 +629,7 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -402,7 +637,7 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	/*use a small stepsize to reach the surface*/
 	h=2.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll_s(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join_s(&X,h, K);
 		r+=h;
 	}
@@ -423,25 +658,30 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho), y=2.0, I=0.0, Ag00=1.0;
-	int pf=0, interpRef=EoS->length-1;
+	int pf, interpRef[16];
+	/*maximum ref space for RK method and interp is 16*/
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	int *ref=interpRef;
 	RK_Arr_t X={p,m,I,Ag00,y};
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
 	for(pf=0;pf<64;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
 	h=1.0/c;
 	for(pf=0;pf<128;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -450,7 +690,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*regular computation*/
 	h=16.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -458,7 +698,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	/*use a small stepsize to reach the surface*/
 	h=2.0/c;
 	while(r<1e-4) {
-		if(ComputeStatus.K_roll(EoS, K, h, r, &X, &interpRef)) break;
+		if(ComputeStatus.K_roll(EoS, K, h, r, &X, ref)) break;
 		ComputeStatus.X_join(&X,h, K);
 		r+=h;
 	}
@@ -485,42 +725,48 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	return 0;
 }
 
-void *solveTOVGate (void *args) {
-	struct solveTOVparams_t *thisParams;
-	thisParams=(struct solveTOVparams_t *) args;
-	solveTOV(thisParams->Results,thisParams->EoS,thisParams->RhocSI);
+void *solveTOVworker (void *args) {
+	solveTOVplan_t *thisParams;
+	thisParams=(solveTOVplan_t *) args;
+	int section=-1, length=thisParams->length;
+	while(section<length-1){
+		pthread_mutex_lock(&mutex);
+		section=(thisParams->section)++;
+		pthread_mutex_unlock(&mutex);
+		if(section>=length){
+			return 0x00;
+		}
+		solveTOV(&(thisParams->Results[section]),thisParams->EoS,thisParams->RhocSI[section]);
+	}
 	return 0x00;
 }
 
-int solveTOV_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+int solveTOV_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int length, int threads) {
+	threads=threads<length?threads:length;
 	if(threads<1){
 		return 0;
 	}
-	struct solveTOVparams_t solveTOVparams[threads];
+	threads=1;
+	solveTOVplan_t tovplan={0,length,RhocSI,EoS,Results};
 	pthread_t solveTOVthread[threads];
-	int pf,section=0;
 
-	while(section+threads<=arrayLen){
-		for(pf=0;pf<threads;pf++,section++){
-			solveTOVparams[pf].RhocSI=RhocSI[section];
-			solveTOVparams[pf].Results=&Results[section];
-			solveTOVparams[pf].EoS=EoS;
-			while(pthread_create(&solveTOVthread[pf],NULL,solveTOVGate,&solveTOVparams[pf])){usleep(50000);}
-		}
-		for(pf=0;pf<threads;pf++){
-			pthread_join(solveTOVthread[pf],NULL);
+	int ptr;
+	for(ptr=0;ptr<threads;++ptr){
+		while(pthread_create(&solveTOVthread[ptr],NULL,solveTOVworker,&tovplan)){
+			usleep(50000);
 		}
 	}
+	for(ptr=0;ptr<threads;++ptr){
+		pthread_join(solveTOVthread[ptr],NULL);
+	}
 
-	solveTOV_mt(&Results[section],EoS,&RhocSI[section],arrayLen-section,threads);
 	return 0;
 }
 
 double getMmax(EoS_t *EoS) {
 	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
-    double Mmax,Mmin,m0,m1,m2;
-    int n, pf;
+    double m0,m1,m2;
+    int n;
 	double tmpMassM0M1[2], tmpRhocE0E1[2];
     
 	tmpRhocE0E1[1]=(EoS->RhomaxSI<4.2e18)?EoS->RhomaxSI:4.2e18;
@@ -559,13 +805,17 @@ double getMmax(EoS_t *EoS) {
 	md=tmpMassM0M1[1];
 	for(n=0;n<15;n++) {
 		if(mc-md>0) {
-			Eb=Ed;mb=md;
-			Ed=Ec;md=mc;
+			Eb=Ed;
+			mb=md;
+			Ed=Ec;
+			md=mc;
 			Ec=Ea+0.382*(Eb-Ea);
 			mc=getM_s(EoS,Ec);
 		}else{
-			Ea=Ec;ma=mc;
-			Ec=Ed;mc=md;
+			Ea=Ec;
+			ma=mc;
+			Ec=Ed;
+			mc=md;
 			Ed=Ea+0.618*(Eb-Ea);
 			md=getM_s(EoS,Ed);
 		}
@@ -590,20 +840,23 @@ double M2Rhoc(EoS_t *EoS, double fM) {
 		fprintf(stderr,"warning: attempt to find a low mass neutron star!\n");
 		return 5e17;
 	}
-	E0=5e17;E2=EoS->Rhoc_MmaxSI;m0=Mmin;m2=Mmax;
+	E0=5e17;
+	E2=EoS->Rhoc_MmaxSI;
+	m0=Mmin;
+	m2=Mmax;
 
-	for(n=0;n<threads;n++){
+	for(n=0;n<threads;++n){
 		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
 	}
 	getM_s_mt(massFrame, EoS, RhocFrame, threads, threads);
 
-	for(n=0;n<threads;n++){
+	for(n=0;n<threads;++n){
 		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
 	}
 
 	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
-	for(n=0;n<8;n++){
+	for(n=0;n<8;++n){
 		interp_ArXiv_M2Rhoc_arr(&RhocGuess, &thisArxiv, &fM, 1);
 		massGuess=getM_s(EoS, RhocGuess);
 		rec2arxiv(&thisArxiv,RhocGuess,massGuess);
@@ -681,7 +934,13 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 	double H1,H0,K,W,X,F,V,Dv,gamma,Dp,N;
 	double DH11,DK1,DW1,DX1,H01,H02,K1,K2,x,X1,X2,Xp1,Xp2,W1,W2,V1,V2,V01,V02,V0;
 	double w,wcheck,o[2],wi,aR,bR,gR,hR,kR,n,Y1,Y2,Z,DZ,DDZ,VZ,Ar1,Ar2,Ai1,Ai2,ar,ai,Ar[2],Ai[2],Br[2],Bi[2];
-	int t,q,wpf,rpf,pfEnd,n4,status=0,interpRef=EoS->length-1;
+	int t,q,wpf,rpf,pfEnd,n4,status=0;
+	int pf, interpRef[16];
+	/*maximum ref space for RK method and interp is 16*/
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	int *ref=interpRef;
 
 	double *mfile,*pfile,*rhofile,*Bfile,*Bcor,*Wfile,*Wfile1,*Wfile2,*Vfile,*Vfile1,*Vfile2;
 	mfile=auxSpace->mfile;
@@ -721,15 +980,15 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		A=1/(1-2*m*Gc2/r);
 		p1=fp(r,p,e,m);
 		m1=fm(r,e);
-		if((p+dr*p1/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p1/2,&interpRef); else break;
+		if((p+dr*p1/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p1/2,ref); else break;
 		B1=Bf(r,p,m,B);
 		p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
 		m2=fm(r+dr/2,e);
-		if((p+dr*p2/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p2/2,&interpRef); else break;
+		if((p+dr*p2/2)>pressure) e=interp_p2rho_SI(EoS,p+dr*p2/2,ref+1); else break;
 		B2=Bf(r+dr/2,p+dr*p1/2,m+dr*m1/2,B+dr*B1/2);
 		p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
 		m3=fm(r+dr/2,e);
-		if((p+dr*p3)>pressure) e=interp_p2rho_SI(EoS,p+dr*p3,&interpRef); else break;
+		if((p+dr*p3)>pressure) e=interp_p2rho_SI(EoS,p+dr*p3,ref+2); else break;
 		B3=Bf(r+dr/2,p+dr*p2/2,m+dr*m2/2,B+dr*B2/2);
 		p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
 		m4=fm(r+dr,e);
@@ -738,7 +997,7 @@ int fmode(CompactStar_t *Results, EoS_t *EoS, double RhocSI, auxSpace_t *auxSpac
 		DDf=-(4/r*Df+J*Df+4/r*J*f);
 		I=I-2.0/3*f*J/sqrt(A*B)*r*r*r*dr;
 		p=p+dr*(p1+2*p2+2*p3+p4)/6;
-		e=interp_p2rho_SI(EoS,p,&interpRef);
+		e=interp_p2rho_SI(EoS,p,ref+3);
 		m=m+dr*(m1+2*m2+2*m3+m4)/6;
 		B=B+dr*(B1+2*B2+2*B3+B4)/6;
 		f=f+Df*dr;
@@ -946,66 +1205,72 @@ funcExit:
 	return status;
 }
 
-void * fmodeGate (void *args){
-	struct fmodeParams_t *thisParams;
-	thisParams=(struct fmodeParams_t *) args;
-	/*start the computation*/
-	fmode(thisParams->Results,thisParams->EoS,thisParams->RhocSI,thisParams->auxSpace);
+void * fmode_worker (void *args){
+	fmodeplan_t *thisParams;
+	thisParams=(fmodeplan_t *) args;
+	int section=-1, workerId, length=thisParams->length;
+	pthread_mutex_lock(&mutex);
+	workerId=(thisParams->workerId)++;
+	pthread_mutex_unlock(&mutex);
+	while(section<length-1){
+		pthread_mutex_lock(&mutex);
+		section=(thisParams->section)++;
+		pthread_mutex_unlock(&mutex);
+		if(section>=length){
+			return 0x00;
+		}
+		fmode(&(thisParams->Results[section]),thisParams->EoS,thisParams->RhocSI[section],&(thisParams->auxSpace[workerId]));
+	}
 	return 0x00;
 }
 
-int fmode_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+int fmode_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int length, int threads) {
+	threads=threads<length?threads:length;
 	if(threads<1){
 		return 0;
 	}
 	auxSpace_t auxSpace[threads];
-	struct fmodeParams_t fmodeParams[threads];
 	pthread_t fmodeThread[threads];
-	int pf,section=0;
+	int ptr;
 	/*register auxiliary space for each thread*/
-	for(pf=0;pf<threads;pf++){
-		auxSpace[pf].mfile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].pfile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].rhofile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Bfile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Bcor=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Wfile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Wfile1=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Wfile2=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Vfile=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Vfile1=(double*)malloc(50000*sizeof(double));
-		auxSpace[pf].Vfile2=(double*)malloc(50000*sizeof(double));
+	for(ptr=0;ptr<threads;++ptr){
+		auxSpace[ptr].mfile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].pfile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].rhofile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Bfile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Bcor=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Wfile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Wfile1=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Wfile2=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Vfile=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Vfile1=(double*)malloc(50000*sizeof(double));
+		auxSpace[ptr].Vfile2=(double*)malloc(50000*sizeof(double));
 	}
+	fmodeplan_t fmplan={0,length,RhocSI,EoS,Results,auxSpace,0};
 	
-	while(section+threads<=arrayLen){
-		for(pf=0;pf<threads;pf++,section++){
-			fmodeParams[pf].RhocSI=RhocSI[section];
-			fmodeParams[pf].Results=&Results[section];
-			fmodeParams[pf].auxSpace=&auxSpace[pf];
-			fmodeParams[pf].EoS=EoS;
-			while(pthread_create(&fmodeThread[pf],NULL,fmodeGate,&fmodeParams[pf])){usleep(50000);}
+	for(ptr=0;ptr<threads;++ptr){
+		while(pthread_create(&fmodeThread[ptr],NULL,fmode_worker,&fmplan)){
+			usleep(50000);
 		}
-		for(pf=0;pf<threads;pf++){
-			pthread_join(fmodeThread[pf],NULL);
-		}
+	}
+	for(ptr=0;ptr<threads;++ptr){
+		pthread_join(fmodeThread[ptr],NULL);
 	}
 
 	/*release the aux space*/
-	for(pf=0;pf<threads;pf++){
-		free(auxSpace[pf].mfile);
-		free(auxSpace[pf].pfile);
-		free(auxSpace[pf].rhofile);
-		free(auxSpace[pf].Bfile);
-		free(auxSpace[pf].Bcor);
-		free(auxSpace[pf].Wfile);
-		free(auxSpace[pf].Wfile1);
-		free(auxSpace[pf].Wfile2);
-		free(auxSpace[pf].Vfile);
-		free(auxSpace[pf].Vfile1);
-		free(auxSpace[pf].Vfile2);
+	for(ptr=0;ptr<threads;++ptr){
+		free(auxSpace[ptr].mfile);
+		free(auxSpace[ptr].pfile);
+		free(auxSpace[ptr].rhofile);
+		free(auxSpace[ptr].Bfile);
+		free(auxSpace[ptr].Bcor);
+		free(auxSpace[ptr].Wfile);
+		free(auxSpace[ptr].Wfile1);
+		free(auxSpace[ptr].Wfile2);
+		free(auxSpace[ptr].Vfile);
+		free(auxSpace[ptr].Vfile1);
+		free(auxSpace[ptr].Vfile2);
 	}
-	fmode_mt(&Results[section],EoS,&RhocSI[section],arrayLen-section,threads);
 	return 0;
 }
 
@@ -1015,7 +1280,12 @@ int fmode_mt(CompactStar_t *Results, EoS_t *EoS, double *RhocSI, int arrayLen, i
 double getM_fm(EoS_t *EoS, double RhocSI){
     double dr=0.5;
     double r,p,e,m,m1,m2,m3,m4,p1,p2,p3,p4,p_surf;
-    int pf, interpRef=EoS->length;
+    int pf, interpRef[16];
+	/*maximum ref space for RK method and interp is 16*/
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	int *ref = interpRef;
 
     p_surf=pow(10,EoS->lgP_SI[0]);
     r=1.0;
@@ -1030,17 +1300,17 @@ double getM_fm(EoS_t *EoS, double RhocSI){
 
         p1=fp(r,p,e,m);
         m1=fm(r,e);
-        if((p+dr*p1/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p1/2,&interpRef); else break;
+        if((p+dr*p1/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p1/2,ref); else break;
         p2=fp(r+dr/2,p+dr*p1/2,e,m+dr*m1/2);
         m2=fm(r+dr/2,e);
-        if((p+dr*p2/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p2/2,&interpRef); else break;
+        if((p+dr*p2/2)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p2/2,ref+1); else break;
         p3=fp(r+dr/2,p+dr*p2/2,e,m+dr*m2/2);
         m3=fm(r+dr/2,e);
-        if((p+dr*p3)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p3,&interpRef); else break;
+        if((p+dr*p3)>p_surf) e=interp_p2rho_SI(EoS,p+dr*p3,ref+2); else break;
         p4=fp(r+dr,p+dr*p3,e,m+dr*m3);
         m4=fm(r+dr,e);
         p=p+dr*(p1+2*p2+2*p3+p4)/6;
-        e=interp_p2rho_SI(EoS,p,&interpRef);
+        e=interp_p2rho_SI(EoS,p,ref+3);
         m=m+dr*(m1+2*m2+2*m3+m4)/6;
     }
     return m/Msun;
@@ -1117,73 +1387,6 @@ double M2Rhoc_fm(EoS_t *EoS, double fM) {
     return(E0+(E2-E0)*(fM-m0)/(m2-m0));
 }
 
-void * m2fmodeGate_fm(void *args){
-    struct fmodeParams_t *thisParams;
-    thisParams = (struct fmodeParams_t * ) args;
-    loadEoS(thisParams->EoS,thisParams->EoS->FilePath);
-    double rhoc=M2Rhoc_fm(thisParams->EoS,thisParams->fM);
-    fmode(thisParams->Results, thisParams->EoS, rhoc, thisParams->auxSpace);
-    return 0x00;
-}
-
-int m2fmode_mt(CompactStar_t *Results, double fM, Path_t *EoSlist, int EoSlistLen, int threads) {
-    threads=threads<EoSlistLen?threads:EoSlistLen;
-    if(threads<1){
-        return 0;
-    }
-    auxSpace_t auxSpace[threads];
-    struct fmodeParams_t fmodeParams[threads];
-    EoS_t EoS[threads];
-    pthread_t fmodeThread[threads];
-    int pf,section=0;
-
-    /*register auxiliary space for each thread*/
-    for(pf=0;pf<threads;pf++){
-        auxSpace[pf].mfile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].pfile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].rhofile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Bfile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Bcor=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Wfile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Wfile1=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Wfile2=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Vfile=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Vfile1=(double*)malloc(50000*sizeof(double));
-        auxSpace[pf].Vfile2=(double*)malloc(50000*sizeof(double));
-    }
-    while(section+threads<=EoSlistLen){
-        for(pf=0;pf<threads;pf++,section++){
-            strcpy(EoS[pf].FilePath,EoSlist[section].FilePath);
-            fmodeParams[pf].EoS=&EoS[pf];
-            fmodeParams[pf].fM=fM;
-            fmodeParams[pf].Results=&Results[section];
-            fmodeParams[pf].auxSpace=&auxSpace[pf];
-            while(pthread_create(&fmodeThread[pf],NULL,m2fmodeGate_fm,&fmodeParams[pf])){usleep(50000);}
-        }
-        for(pf=0;pf<threads;pf++){
-            pthread_join(fmodeThread[pf],NULL);
-        }
-    }
-
-    /*release the aux space*/
-    for(pf=0;pf<threads;pf++){
-        free(auxSpace[pf].mfile);
-        free(auxSpace[pf].pfile);
-        free(auxSpace[pf].rhofile);
-        free(auxSpace[pf].Bfile);
-        free(auxSpace[pf].Bcor);
-        free(auxSpace[pf].Wfile);
-        free(auxSpace[pf].Wfile1);
-        free(auxSpace[pf].Wfile2);
-        free(auxSpace[pf].Vfile);
-        free(auxSpace[pf].Vfile1);
-        free(auxSpace[pf].Vfile2);
-    }
-
-    m2fmode_mt(&Results[section],fM,&EoSlist[section],EoSlistLen-section,threads);
-    return 0;
-}
-
 void setIndex(int *index, int len){
 	while(len-- > 0){
 		index[len]=len;
@@ -1213,59 +1416,64 @@ int arcSimSort(int head, int tail, int* index, double* data){
     return 0;
 }
 
-int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int arrayLen) {
+int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length) {
 	int pf, *mid=Arxiv->index;
-	while(arrayLen-- > 0){
+	while(length-- > 0){
 		for(pf=Arxiv->length-1; pf>0; pf--){
-			if(massArr[arrayLen]>Arxiv->M[mid[pf-1]]){
+			if(massArr[length]>Arxiv->M[mid[pf-1]]){
 				break;
 			}
 		}
-		RhocGuess[arrayLen]=(massArr[arrayLen]-(Arxiv->M[mid[pf-1]]) )*((Arxiv->RhocSI[mid[pf]])-(Arxiv->RhocSI[mid[pf-1]]))/((Arxiv->M[mid[pf]])-(Arxiv->M[mid[pf-1]]))+(Arxiv->RhocSI[mid[pf-1]]);
+		RhocGuess[length]=(massArr[length]-(Arxiv->M[mid[pf-1]]) )*((Arxiv->RhocSI[mid[pf]])-(Arxiv->RhocSI[mid[pf-1]]))/((Arxiv->M[mid[pf]])-(Arxiv->M[mid[pf-1]]))+(Arxiv->RhocSI[mid[pf-1]]);
 	}
 	return 0;
 }
 
-void *getM_fmGate (void *args) {
-	struct getM_params_t *thisParams;
-	thisParams=(struct getM_params_t *) args;
-	*(thisParams->M)=getM_fm(thisParams->EoS,thisParams->RhocSI);
+void *getM_worker (void *args) {
+	getMplan_t *thisParams;
+	thisParams=(getMplan_t *) args;
+	int section=-1, length=thisParams->length;
+	while(section<length-1){
+		pthread_mutex_lock(&mutex);
+		section=(thisParams->section)++;
+		pthread_mutex_unlock(&mutex);
+		if(section>=length){
+			return 0x00;
+		}
+		thisParams->massArr[section]=thisParams->getM(thisParams->EoS,thisParams->RhocSI[section]);
+	}
 	return 0x00;
 }
 
-int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int length, int threads) {
+	threads=threads<length?threads:length;
 	if(threads<1){
 		return 0;
 	}
-	struct getM_params_t gm_params[8];
+	getMplan_t mplan={0,length,RhocSI,EoS,massArr,&getM_fm};
 	pthread_t getMthread[threads];
-	int pf,section=0;
+	int ptr;
 
-	while(section+threads<=arrayLen){
-		for(pf=0;pf<threads;pf++,section++){
-			gm_params[pf].RhocSI=RhocSI[section];
-			gm_params[pf].M=&massArr[section];
-			gm_params[pf].EoS=EoS;
-			while(pthread_create(&getMthread[pf],NULL,getM_fmGate,&gm_params[pf])){usleep(50000);}
-		}
-		for(pf=0;pf<threads;pf++){
-			pthread_join(getMthread[pf],NULL);
+	for(ptr=0;ptr<threads;++ptr){
+		while(pthread_create(&getMthread[ptr],NULL,getM_worker,&mplan)){
+			usleep(50000);
 		}
 	}
-
-	getM_fm_mt(&massArr[section],EoS,&RhocSI[section],arrayLen-section,threads);
+	for(ptr=0;ptr<threads;++ptr){
+		pthread_join(getMthread[ptr],NULL);
+	}
 	return 0;
 }
 
-int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+
+int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int threads) {
+	threads=threads<length?threads:length;
 	threads=threads<2?2:threads;
 	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
     double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
     int n, pf;
 
-	double RhocFrame[threads], massFrame[threads], RhocGuess[arrayLen], massGuess[arrayLen];
+	double RhocFrame[threads], massFrame[threads], RhocGuess[length], massGuess[length];
 	double tmpMassM0M1[2], tmpRhocE0E1[2];
 
 	ArXiv_t thisArxiv={0};
@@ -1336,60 +1544,47 @@ MmaxFound:
 	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
 	for(n=0;n<8;n++){
-		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, arrayLen);
-		getM_fm_mt(massGuess, EoS, RhocGuess, arrayLen, threads);
-		for(pf=0;pf<arrayLen;pf++){
+		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
+		getM_fm_mt(massGuess, EoS, RhocGuess, length, threads);
+		for(pf=0;pf<length;pf++){
 			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
 		}
 		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 	}
 
-	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, arrayLen);
+	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, length);
 
 	return 0;
 }
 
-void *getM_sGate (void *args) {
-	struct getM_params_t *thisParams;
-	thisParams=(struct getM_params_t *) args;
-	*(thisParams->M)=getM_s(thisParams->EoS,thisParams->RhocSI);
-	return 0x00;
-}
-
-
-int getM_s_mt(double *massArr, EoS_t *EoS, double *RhocSI, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+int getM_s_mt(double *massArr, EoS_t *EoS, double *RhocSI, int length, int threads) {
+	threads=threads<length?threads:length;
 	if(threads<1){
 		return 0;
 	}
-	struct getM_params_t gm_params[8];
+	getMplan_t mplan={0,length,RhocSI,EoS,massArr,&getM_s};
 	pthread_t getMthread[threads];
-	int pf,section=0;
+	int ptr;
 
-	while(section+threads<=arrayLen){
-		for(pf=0;pf<threads;pf++,section++){
-			gm_params[pf].RhocSI=RhocSI[section];
-			gm_params[pf].M=&massArr[section];
-			gm_params[pf].EoS=EoS;
-			while(pthread_create(&getMthread[pf],NULL,getM_sGate,&gm_params[pf])){usleep(50000);}
-		}
-		for(pf=0;pf<threads;pf++){
-			pthread_join(getMthread[pf],NULL);
+	for(ptr=0;ptr<threads;++ptr){
+		while(pthread_create(&getMthread[ptr],NULL,getM_worker,&mplan)){
+			usleep(50000);
 		}
 	}
-
-	getM_s_mt(&massArr[section],EoS,&RhocSI[section],arrayLen-section,threads);
+	for(ptr=0;ptr<threads;++ptr){
+		pthread_join(getMthread[ptr],NULL);
+	}
 	return 0;
 }
 
-int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int arrayLen, int threads) {
-	threads=threads<arrayLen?threads:arrayLen;
+int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int threads) {
+	threads=threads<length?threads:length;
 	threads=threads<2?2:threads;
 	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
     double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
     int n, pf;
 
-	double RhocFrame[threads], massFrame[threads], RhocGuess[arrayLen], massGuess[arrayLen];
+	double RhocFrame[threads], massFrame[threads], RhocGuess[length], massGuess[length];
 	double tmpMassM0M1[2], tmpRhocE0E1[2];
 
 	ArXiv_t thisArxiv={0};
@@ -1460,15 +1655,15 @@ MmaxFound:
 	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
 	for(n=0;n<8;n++){
-		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, arrayLen);
-		getM_s_mt(massGuess, EoS, RhocGuess, arrayLen, threads);
-		for(pf=0;pf<arrayLen;pf++){
+		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
+		getM_s_mt(massGuess, EoS, RhocGuess, length, threads);
+		for(pf=0;pf<length;pf++){
 			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
 		}
 		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 	}
 
-	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, arrayLen);
+	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, length);
 
 	return 0;
 }
