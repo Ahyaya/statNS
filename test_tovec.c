@@ -3,15 +3,17 @@
 #include <math.h>
 #include "include/statNS.h"
 
+#define NONE 0
+#define SOFT 1
+#define HARD 2
+
 static const double pi=3.14159265358979, 
 					G=6.673e-11,
 					c=2.99792458e8,
 					Msun=1.989e30,
 					Mscale=2.033931261665867e5;
 
-int solveTOV_db (char dblogPath[], double errTolerance, EoS_t *EoS, double RhocSI){
-	
-	RK_plan_t RK_plan_db = {RungeKutta_RK5M_roll, NULL, RungeKutta_RK5M_join_ec};
+int solveTOV_db (char dblogPath[], RK_plan_t *RK_plan_db, int ecflag, double errTolerance, EoS_t *EoS, double RhocSI){
 
 	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho), y=2.0, I=0.0, Ag00=1.0;
@@ -33,28 +35,37 @@ int solveTOV_db (char dblogPath[], double errTolerance, EoS_t *EoS, double RhocS
 		return -1;
 	}
 
-	double h = 1.0/c, hmin = h/64.0, hmax = h*64.0;
+	double h0 = 1.0/c;
 
-	/*regular computation*/
+	double h = h0, hmin = h0/64.0, hmax = h0*64.0, hscale;
+
+	int upflag, downflag;
+
 	while (r<1e-4) {
-		if (RK_plan_db.K_roll (EoS, K, h, r, &X, ref)) break;
 
-		err = RK_plan_db.X_join_ec (&nextX, h, K);
+		if (RK_plan_db->K_roll (EoS, K, h, r, &X, ref)) break;
 
-		if (errTolerance < 1e-8){
+		err = RK_plan_db->X_join_ec (&nextX, h, K);
+
+		upflag = (err < 0.25*errTolerance && h < hmax);
+
+		downflag = (err > errTolerance && h > hmin);
+
+		if(ecflag == HARD && downflag){
+			/*forced roll back when error control strategy is HARD while downflag is set*/
+			nextX = X;
+		}else{
 			X = nextX;
 			r+=h;
 			fprintf(fp, "%.4e, %.4e, %.4e\n", r*c*1e-3, err, h*c);
-		}else{
-			if (err > errTolerance && h > hmin){
-				h *= 0.5;
-				continue;
-			}
-			X = nextX;
-			r += h;
-			fprintf(fp, "%.4e, %.4e, %.4e\n", r*c*1e-3, err, h*c);
-			h *= (err < 0.25*errTolerance && h < hmax)+1;
 		}
+
+		/*  0 .. 1 -> 1 .. a  */
+		/* (ecflag != NONE) * (a-1) + 1 */
+		hscale = (ecflag != NONE) * ((upflag+1)*(1-0.5*downflag) - 1) + 1;
+		
+		/*scale the step size according to ecflag and err*/
+		h *= hscale;
 	}
 
 	fclose(fp);
@@ -98,9 +109,29 @@ int main(int argc, char *argv[]){
 
 	double rhoc = 1.00183e+18;
 
-	solveTOV_db ("tovErr_fixed.log", 0, &myEoS, rhoc);
+	/*run with RK5M debug mode*/
+	RK_plan_t rk5M_db = {RungeKutta_RK5M_roll, NULL, RungeKutta_RK5M_join_ec};
+	solveTOV_db ("tovErr_rk5m_fixed.log", &rk5M_db, NONE, 0, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5m_soft.log", &rk5M_db, SOFT, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5m_hard.log", &rk5M_db, HARD, 1e-5, &myEoS, rhoc);
 
-	solveTOV_db ("tovErr_adaptive.log", 1e-6, &myEoS, rhoc);
+	/*run with RK5DP debug mode*/
+	RK_plan_t rk5DP_db = {RungeKutta_RK5DP_roll, NULL, RungeKutta_RK5DP_join_ec};
+	solveTOV_db ("tovErr_rk5dp_fixed.log", &rk5DP_db, NONE, 0, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5dp_soft.log", &rk5DP_db, SOFT, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5dp_hard.log", &rk5DP_db, HARD, 1e-5, &myEoS, rhoc);
+
+	/*run with RK5F debug mode*/
+	RK_plan_t rk5F_db = {RungeKutta_RK5F_roll, NULL, RungeKutta_RK5F_join_ec};
+	solveTOV_db ("tovErr_rk5f_fixed.log", &rk5F_db, NONE, 0, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5f_soft.log", &rk5F_db, SOFT, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5f_hard.log", &rk5F_db, HARD, 1e-5, &myEoS, rhoc);
+
+	/*run with RK4M debug mode*/
+	RK_plan_t rk4M_db = {RungeKutta_RK4M_roll, NULL, RungeKutta_RK4M_join_ec};
+	solveTOV_db ("tovErr_rk4m_fixed.log", &rk4M_db, NONE, 0, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk4m_soft.log", &rk4M_db, SOFT, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk4m_hard.log", &rk4M_db, HARD, 1e-5, &myEoS, rhoc);
 
 	return 0;
 }

@@ -483,8 +483,42 @@ int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 
 int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
-	double H[6]={31.0/540*h, 0, 190.0/297*h, -145.0/108*h, 351.0/220*h, 0.05*h};
+	double H[6]={19.0/216*h, 0, 1000.0/2079*h, -125.0/216*h, 81.0/88*h, 5.0/56*h};
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
+	return 0;
+}
+
+
+int RungeKutta_RK5DP_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref){
+	RK_Arr_t rkVar;
+	double H_1[1]={0.2*h};
+	double H_2[2]={0.075000*h,0.225000*h};
+	double H_3[3]={44.0/45*h,-56.0/15*h,32.0/9*h};
+	double H_4[4]={19372.0/6561*h,-25360.0/2187*h,64448.0/6561*h,-212.0/729*h};
+	double H_5[5]={9017.0/3168*h,-355.0/33*h,46732.0/5247*h,49.0/176*h,-5103.0/18656*h};
+	double H_6[6]={35.0/384*h,0,500.0/1113*h,125.0/192*h,-2187.0/6784*h,11.0/84*h};
+	if(dFunc(EoS, &K[0], r, X, ref)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_1,K,X,1);
+	if(dFunc(EoS, &K[1], r+0.2*h, &rkVar, ref+1)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_2,K,X,2);
+	if(dFunc(EoS, &K[2], r+0.3*h, &rkVar, ref+2)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_3,K,X,3);
+	if(dFunc(EoS, &K[3], r+0.8*h, &rkVar, ref+3)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_4,K,X,4);
+	if(dFunc(EoS, &K[4], r+8.0/9*h, &rkVar, ref+4)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_5,K,X,5);
+	if(dFunc(EoS, &K[5], r+h, &rkVar, ref+5)){return -1;}
+	RungeKutta_Array_adds(&rkVar,H_6,K,X,6);
+	if(dFunc(EoS, &K[6], r+h, &rkVar, ref+6)){return -1;}
+	return 0;
+}
+
+int RungeKutta_RK5DP_join (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
+	double H[7]={35.0/384*h,0,500.0/1113*h,125.0/192*h,-2187.0/6784*h,11.0/84*h,0};
+	RungeKutta_Array_adds(&rkVar, H, K, Result, 7);
 	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
 	/*dim=0 means copy the array*/
 	return 0;
@@ -509,26 +543,47 @@ double RungeKutta_RK4M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 
 double RungeKutta_RK5F_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
-	double H[6]={16.0/135*h, 0, 6656.0/12825*h, 28561.0/56430*h, - 0.18*h, 2.0/55*h};
+	/*Runge-Kutta-Fehlberg method*/
+	double H[6]={16.0/135*h, 0, 6656.0/12825*h, 28561.0/56430*h, -0.18*h, 2.0/55*h};
+	/*Low-order HL[]={25.0/216, 0, 1408.0/2565, 2197.0/4104, -0.2}*/
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
 	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
 	/*dim=0 means copy the array*/
 
 	/*Error Estimate*/
-	double RkError=(0.0027778*(K[0].P) - 0.0299415*(K[2].P) - 0.0291999*(K[3].P) + 0.0200000*(K[4].P) + 0.0363636*(K[5].P))/(16.0/135*(K[0].P) + 6656.0/12825*(K[2].P) + 28561.0/56430*(K[3].P) - 0.18*(K[4].P) + 2.0/55*(K[5].P) );
+	double RkError=(2.777777777777782e-03*(K[0].P) -2.994152046783627e-02*(K[2].P) -2.919989367357789e-02*(K[3].P) + 0.02*(K[4].P) + 0.0363636363636363636*(K[5].P))/(16.0/135*(K[0].P) + 6656.0/12825*(K[2].P) + 28561.0/56430*(K[3].P) - 0.18*(K[4].P) + 2.0/55*(K[5].P) );
 
 	return fabs(RkError);
 }
 
 double RungeKutta_RK5M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
 	RK_Arr_t rkVar;
-	double H[6]={31.0/540*h, 0, 190.0/297*h, -145.0/108*h, 351.0/220*h, 0.05*h};
+	/*One special kind of Dormand-Prince method*/
+	/*https://adsabs.harvard.edu/full/1988CeMec..44..167P*/
+	double H[6]={19.0/216*h, 0, 1000.0/2079*h, -125.0/216*h, 81.0/88*h, 5.0/56*h};
+	/*Low-order HL[]={31.0/540, 0, 190.0/297, -145.0/108, 351.0/220, 0.05}*/
 	RungeKutta_Array_adds(&rkVar, H, K, Result, 6);
 	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
 	/*dim=0 means copy the array*/
 
 	/*Error Estimate*/
-	double RkError=(-0.030556*(K[0].P) + 0.158730*(K[2].P) - 0.763889*(K[3].P) + 0.675000*(K[4].P) - 0.039286*(K[5].P))/(31.0/540*(K[0].P) + 190.0/297*(K[2].P) - 145.0/108*(K[3].P) + 351.0/220*(K[4].P) + 0.05*(K[5].P) );
+	double RkError=(0.030555555555556*(K[0].P) -0.158730158730159*(K[2].P) +0.763888888888889*(K[3].P) -0.675000*(K[4].P) +0.039285714285714*(K[5].P))/(19.0/216*(K[0].P) + 1000.0/2079*(K[2].P) -125.0/216*(K[3].P) + 81.0/88*(K[4].P) + 5.0/56*(K[5].P));
+
+	return fabs(RkError);
+}
+
+
+double RungeKutta_RK5DP_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K) {
+	RK_Arr_t rkVar;
+	/*Standard form of Dormand-Prince method*/
+	double H[7]={35.0/384*h,0,500.0/1113*h,125.0/192*h,-2187.0/6784*h,11.0/84*h,0};
+	/*Low-order HL[]={5179.0/57600, 0, 7571.0/16695, 393.0/640, -92097.0/339200, 187.0/2100, 1.0/40}*/
+	RungeKutta_Array_adds(&rkVar, H, K, Result, 7);
+	RungeKutta_Array_adds(Result, H, K, &rkVar, 0);
+	/*dim=0 means copy the array*/
+
+	/*Error Estimate*/
+	double RkError=(1.232638888888887e-03*(K[0].P) -4.252770290506136e-03*(K[2].P) +3.697916666666667e-02*(K[3].P) -5.086379716981132e-02*(K[4].P) +4.190476190476192e-02*(K[5].P) -0.025*(K[6].P))/(35.0/384*(K[0].P) + 500.0/1113*(K[2].P) +125.0/192*(K[3].P) -2187.0/6784*(K[4].P) + 11.0/84*(K[5].P));
 
 	return fabs(RkError);
 }

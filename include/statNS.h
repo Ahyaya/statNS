@@ -191,12 +191,15 @@ int RungeKutta_RK5F_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *
 int RungeKutta_RK5F_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 int RungeKutta_RK5M_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
 int RungeKutta_RK5M_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
+int RungeKutta_RK5DP_roll(EoS_t *EoS, RK_Arr_t *K, double h, double r, RK_Arr_t *X, int *ref);
+int RungeKutta_RK5DP_join (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
 /*Postscript with _ec mean join Runge Kutta array with error control*/
 /*Test features only build for the Numeric Computation Course in SYSU*/
 double RungeKutta_RK4M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
 double RungeKutta_RK5F_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
 double RungeKutta_RK5M_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
+double RungeKutta_RK5DP_join_ec (RK_Arr_t *Result, double h, RK_Arr_t *K);
 
 /*Default choice for RK_plan_t is the RK5L algorithm*/
 /*Notice that it is faster, but it simply has no error control capability*/
