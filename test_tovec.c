@@ -35,7 +35,7 @@ int solveTOV_db (char dblogPath[], RK_plan_t *RK_plan_db, int ecflag, double err
 		return -1;
 	}
 
-	double h0 = 2.0/c;
+	double h0 = 10.0/c;
 
 	double h = h0, hmin = h0/64.0, hmax = h0*64.0, hscale;
 
@@ -47,7 +47,7 @@ int solveTOV_db (char dblogPath[], RK_plan_t *RK_plan_db, int ecflag, double err
 
 		err = RK_plan_db->X_join_ec (&nextX, h, K);
 
-		upflag = (err < 0.25*errTolerance && h < hmax);
+		upflag = (err < 0.01*errTolerance && h < hmax);
 
 		downflag = (err > errTolerance && h > hmin);
 
@@ -112,32 +112,32 @@ int main(int argc, char *argv[]){
 	/*run with RK5M debug mode*/
 	RK_plan_t rk5M_db = {RungeKutta_RK5M_roll, NULL, RungeKutta_RK5M_join_ec};
 	solveTOV_db ("tovErr_rk5m_fixed.log", &rk5M_db, NONE, 0, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5m_soft.log", &rk5M_db, SOFT, 1e-5, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5m_hard.log", &rk5M_db, HARD, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5m_soft.log", &rk5M_db, SOFT, 1e-8, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5m_hard.log", &rk5M_db, HARD, 1e-8, &myEoS, rhoc);
 
 	/*run with RK5DP debug mode*/
 	RK_plan_t rk5DP_db = {RungeKutta_RK5DP_roll, NULL, RungeKutta_RK5DP_join_ec};
 	solveTOV_db ("tovErr_rk5dp_fixed.log", &rk5DP_db, NONE, 0, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5dp_soft.log", &rk5DP_db, SOFT, 1e-5, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5dp_hard.log", &rk5DP_db, HARD, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5dp_soft.log", &rk5DP_db, SOFT, 1e-8, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5dp_hard.log", &rk5DP_db, HARD, 1e-8, &myEoS, rhoc);
 
 	/*run with RK5F debug mode*/
 	RK_plan_t rk5F_db = {RungeKutta_RK5F_roll, NULL, RungeKutta_RK5F_join_ec};
 	solveTOV_db ("tovErr_rk5f_fixed.log", &rk5F_db, NONE, 0, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5f_soft.log", &rk5F_db, SOFT, 1e-5, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5f_hard.log", &rk5F_db, HARD, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5f_soft.log", &rk5F_db, SOFT, 1e-8, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5f_hard.log", &rk5F_db, HARD, 1e-8, &myEoS, rhoc);
 
 	/*run with RK5CP debug mode*/
 	RK_plan_t rk5CK_db = {RungeKutta_RK5CK_roll, NULL, RungeKutta_RK5CK_join_ec};
 	solveTOV_db ("tovErr_rk5ck_fixed.log", &rk5CK_db, NONE, 0, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5ck_soft.log", &rk5CK_db, SOFT, 1e-5, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk5ck_hard.log", &rk5CK_db, HARD, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5ck_soft.log", &rk5CK_db, SOFT, 1e-8, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk5ck_hard.log", &rk5CK_db, HARD, 1e-8, &myEoS, rhoc);
 
 	/*run with RK4M debug mode*/
 	RK_plan_t rk4M_db = {RungeKutta_RK4M_roll, NULL, RungeKutta_RK4M_join_ec};
 	solveTOV_db ("tovErr_rk4m_fixed.log", &rk4M_db, NONE, 0, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk4m_soft.log", &rk4M_db, SOFT, 1e-5, &myEoS, rhoc);
-	solveTOV_db ("tovErr_rk4m_hard.log", &rk4M_db, HARD, 1e-5, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk4m_soft.log", &rk4M_db, SOFT, 1e-8, &myEoS, rhoc);
+	solveTOV_db ("tovErr_rk4m_hard.log", &rk4M_db, HARD, 1e-8, &myEoS, rhoc);
 
 	return 0;
 }
