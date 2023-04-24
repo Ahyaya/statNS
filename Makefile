@@ -1,6 +1,6 @@
 CC = gcc
 CLINK = -lm -lpthread
-CFLAGS = -O3
+CFLAGS = -O3 -fPIC
 
 DYNLIB = lib/libstatNS.so
 STATICLIB = lib/libstatNS.a
@@ -23,11 +23,18 @@ $(STATICLIB): $(OBJECTS)
 	ar rcs $(STATICLIB) $(OBJECTS)
 
 test: test.out
-	@echo "Test start"
+	@echo "Simple Test"
 	./test.out
+
+testtov: test_tovec.out
+	@echo "Testing for adaptive Runge-Kutta method"
+	./test_tovec.out
 
 test.out: $(DYNLIB) $(TESTOBJ)
 	$(CC) $(CFLAGS) $(TESTOBJ) $(DYNLIB) -o test.out
+
+test_tovec.out: $(DYNLIB) test_tovec.c
+	$(CC) $(CFLAGS) test_tovec.c $(DYNLIB) -o test_tovec.out
 
 clean:
 	rm -f *.o
