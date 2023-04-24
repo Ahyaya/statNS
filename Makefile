@@ -34,7 +34,7 @@ test.out: $(DYNLIB) $(TESTOBJ)
 	$(CC) $(CFLAGS) $(TESTOBJ) $(DYNLIB) -o test.out
 
 test_tovec.out: $(DYNLIB) test_tovec.c
-	$(CC) $(CFLAGS) test_tovec.c $(DYNLIB) -o test_tovec.out
+	$(CC) $(CFLAGS) test_tovec.c $(DYNLIB) -lm -o test_tovec.out
 
 clean:
 	rm -f *.o
