@@ -810,6 +810,9 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	}
 	int *ref=interpRef;
 	RK_Arr_t X={p,m,I,Ag00,y};
+	RK_Arr_t Xrollback[16]={0};
+	double rrollback[16]={0};
+	int pxr=0;
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
@@ -827,7 +830,7 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	h=4.0/c;
 	for(pf=0;pf<256;pf++) {
 		RK_plan_default.K_roll(EoS, K, h, r, &X, ref);
-		RK_plan_default.X_join(&X,h, K);
+		RK_plan_default.X_join(&X, h, K);
 		r+=h;
 	}
 	/*end of core section*/
@@ -836,11 +839,25 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 	h=16.0/c;
 	while(r<1e-4) {
 		if(RK_plan_default.K_roll(EoS, K, h, r, &X, ref)) break;
+		RK_plan_default.X_join(&X, h, K);
+		r+=h;
+		Xrollback[pxr] = X;
+		rrollback[pxr] = r;
+		++pxr;
+		pxr &= 0x0F;
+	}
+	/* roll back and use a small step size to reach the surface*/
+	X = Xrollback[pxr];
+	r = rrollback[pxr];
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	h=4.0/c;
+	for(pf=0; pf<32; ++pf) {
+		RK_plan_default.K_roll(EoS, K, h, r, &X, ref);
 		RK_plan_default.X_join(&X,h, K);
 		r+=h;
 	}
-
-	/*use a small stepsize to reach the surface*/
 	h=1.0/c;
 	while(r<1e-4) {
 		if(RK_plan_default.K_roll(EoS, K, h, r, &X, ref)) break;
@@ -848,9 +865,9 @@ int solveTOV(CompactStar_t *Results, EoS_t *EoS, double RhocSI) {
 		r+=h;
 	}
 	/*interpolate the radius at surface, according to pressure and its derivative*/
-	r_offset=K[0].P<0?X.P/(K[0].P):0;
-	r_offset=r_offset>-h?r_offset:-h;
-	r-=r_offset;
+	//r_offset=K[0].P<0?X.P/(K[0].P):0;
+	//r_offset=r_offset>-h?r_offset:-h;
+	//r-=r_offset;
 
 	m=X.M;
 	I=X.I;
