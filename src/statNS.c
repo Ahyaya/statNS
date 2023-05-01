@@ -740,7 +740,7 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	RK_Arr_t K[8];
 	double h;
 
-	double rho=RhocSI*6.6741e-11, r=0.125/c, r_offset;
+	double rho=RhocSI*6.6741e-11, r=0.125/c;
 	double m=4.0/3*r*r*r*rho, p=interp_rho2p(EoS,rho);
 	int pf, interpRef[16];
 	/*maximum ref space for RK method and interp is 16*/
@@ -749,6 +749,9 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 	}
 	int *ref=interpRef;
 	RK_Arr_t X={p,m};
+	RK_Arr_t Xrollback[16]={0};
+	double rrollback[16]={0};
+	int pxr=0;
 
 	/*core section with proceeding stepsize*/
 	h=0.125/c;
@@ -777,19 +780,29 @@ double getM_s(EoS_t *EoS, double RhocSI) {
 		if(RK_plan_simple.K_roll(EoS, K, h, r, &X, ref)) break;
 		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
+		Xrollback[pxr] = X;
+		rrollback[pxr] = r;
+		++pxr;
+		pxr &= 0x0F;
 	}
-
-	/*use a small stepsize to reach the surface*/
+	/* roll back and use a small step size to reach the surface*/
+	X = Xrollback[pxr];
+	r = rrollback[pxr];
+	for(pf=0;pf<16;++pf){
+		interpRef[pf] = EoS->length-1;
+	}
+	h=4.0/c;
+	for(pf=0; pf<32; ++pf) {
+		RK_plan_simple.K_roll(EoS, K, h, r, &X, ref);
+		RK_plan_simple.X_join(&X,h, K);
+		r+=h;
+	}
 	h=1.0/c;
 	while(r<1e-4) {
 		if(RK_plan_simple.K_roll(EoS, K, h, r, &X, ref)) break;
 		RK_plan_simple.X_join(&X,h, K);
 		r+=h;
 	}
-	/*interpolate the radius at surface, according to pressure and its derivative*/
-	r_offset=K[0].P<0?X.P/(K[0].P):0;
-	r_offset=r_offset>-h?r_offset:-h;
-	r-=r_offset;
 
 	m=X.M;
 
@@ -1641,8 +1654,8 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
 	tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
 	getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
-    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];
+    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];
     if(m0-m1<=0) {
         EoS->Rhoc_MmaxSI=E1;
         EoS->Mmax=m1;
@@ -1653,8 +1666,8 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
 		tmpRhocE0E1[0] = tmpRhocE0E1[1]-dE;
 		getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
-		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];
+		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];
         if(m0-m1<=0) break;
     }
     if(m0-m1>0) {
@@ -1668,20 +1681,20 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
 	tmpRhocE0E1[0]=Ec;tmpRhocE0E1[1]=Ed;
 	getM_fm_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-	mc=tmpMassM0M1[0];rec2arxiv(&thisArxiv,Ec,mc);
-	md=tmpMassM0M1[1];rec2arxiv(&thisArxiv,Ed,md);
+	mc=tmpMassM0M1[0];
+	md=tmpMassM0M1[1];
 
     for(n=0;n<15;n++) {
         if(mc-md>0) {
             Eb=Ed;mb=md;
             Ed=Ec;md=mc;
             Ec=Ea+0.382*(Eb-Ea);
-            mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
+            mc=getM_fm(EoS,Ec);
         }else{
             Ea=Ec;ma=mc;
             Ec=Ed;mc=md;
             Ed=Ea+0.618*(Eb-Ea);
-            md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+            md=getM_fm(EoS,Ed);
         }
     }
     EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
@@ -1752,8 +1765,8 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
 	tmpRhocE0E1[0]=tmpRhocE0E1[1]-dE;
 	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
-    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+    E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];
+    E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];
     if(m0-m1<=0) {
         EoS->Rhoc_MmaxSI=E1;
         EoS->Mmax=m1;
@@ -1764,8 +1777,8 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
 		tmpRhocE0E1[0] = tmpRhocE0E1[1]-dE;
 		getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];rec2arxiv(&thisArxiv,E1,m1);
-		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];rec2arxiv(&thisArxiv,E0,m0);
+		E1=tmpRhocE0E1[1];m1=tmpMassM0M1[1];
+		E0=tmpRhocE0E1[0];m0=tmpMassM0M1[0];
         if(m0-m1<=0) break;
     }
     if(m0-m1>0) {
@@ -1779,25 +1792,25 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
 	tmpRhocE0E1[0]=Ec;tmpRhocE0E1[1]=Ed;
 	getM_s_mt(tmpMassM0M1, EoS, tmpRhocE0E1, 2, 2);
 
-	mc=tmpMassM0M1[0];rec2arxiv(&thisArxiv,Ec,mc);
-	md=tmpMassM0M1[1];rec2arxiv(&thisArxiv,Ed,md);
+	mc=tmpMassM0M1[0];
+	md=tmpMassM0M1[1];
 
     for(n=0;n<15;n++) {
         if(mc-md>0) {
             Eb=Ed;mb=md;
             Ed=Ec;md=mc;
             Ec=Ea+0.382*(Eb-Ea);
-            mc=getM_fm(EoS,Ec);rec2arxiv(&thisArxiv,Ec,mc);
+            mc=getM_s(EoS,Ec);
         }else{
             Ea=Ec;ma=mc;
             Ec=Ed;mc=md;
             Ed=Ea+0.618*(Eb-Ea);
-            md=getM_fm(EoS,Ed);rec2arxiv(&thisArxiv,Ed,md);
+            md=getM_s(EoS,Ed);
         }
     }
     EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
-    EoS->Mmax=getM_fm(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
-	Mmin=getM_fm(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
+    EoS->Mmax=getM_s(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
+	Mmin=getM_s(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
 
 MmaxFound:
 
