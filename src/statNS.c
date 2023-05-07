@@ -1060,10 +1060,7 @@ double gf(EoS_t *EoS, double e){
 }
 
 double Ff(double r,double A,double e,double p,double m,double Dp){
-	double F;
-	F=8*pi/r/r*sqrt(A);
-	F=F*(e+3*p+r*Dp-(m/4/pi/r/r/r+p)*(4+A*(m/r-4*pi*r*r*e)));
-	return(F);
+	return(8*pi/r/r*sqrt(A)*(e+3*p+r*Dp-(m/4/pi/r/r/r+p)*(4+A*(m/r-4*pi*r*r*e))));
 }
 
 double fp(double r,double p,double e,double m) {
@@ -1590,12 +1587,12 @@ int arcSimSort(int head, int tail, int* index, double* data){
 int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length) {
 	int pf, *mid=Arxiv->index;
 	while(length-- > 0){
-		for(pf=Arxiv->length-1; pf>0; pf--){
+		for(pf=Arxiv->length-1; pf>0; --pf){
 			if(massArr[length]>Arxiv->M[mid[pf-1]]){
 				break;
 			}
 		}
-		RhocGuess[length]=(massArr[length]-(Arxiv->M[mid[pf-1]]) )*((Arxiv->RhocSI[mid[pf]])-(Arxiv->RhocSI[mid[pf-1]]))/((Arxiv->M[mid[pf]])-(Arxiv->M[mid[pf-1]]))+(Arxiv->RhocSI[mid[pf-1]]);
+		RhocGuess[length]=(massArr[length]-(Arxiv->M[mid[pf-1]]))*((Arxiv->RhocSI[mid[pf]])-(Arxiv->RhocSI[mid[pf-1]]))/((Arxiv->M[mid[pf]])-(Arxiv->M[mid[pf-1]]))+(Arxiv->RhocSI[mid[pf-1]]);
 	}
 	return 0;
 }
@@ -1643,8 +1640,9 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
 	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
     double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
     int n, pf;
+	int framenum = 16;
 
-	double RhocFrame[threads], massFrame[threads], RhocGuess[length], massGuess[length];
+	double RhocFrame[framenum], massFrame[framenum], RhocGuess[length], massGuess[length];
 	double tmpMassM0M1[2], tmpRhocE0E1[2];
 
 	ArXiv_t thisArxiv={0};
@@ -1703,18 +1701,18 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
 
 MmaxFound:
 
-	for(n=0;n<threads;n++){
-		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
+	for(n=0;n<framenum;++n){
+		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(framenum+1);
 	}
-	getM_fm_mt(massFrame, EoS, RhocFrame, threads, threads);
+	getM_fm_mt(massFrame, EoS, RhocFrame, framenum, threads);
 
-	for(n=0;n<threads;n++){
+	for(n=0;n<framenum;++n){
 		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
 	}
 
 	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
-	for(n=0;n<8;n++){
+	for(n=0;n<8;++n){
 		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
 		getM_fm_mt(massGuess, EoS, RhocGuess, length, threads);
 		for(pf=0;pf<length;pf++){
@@ -1754,8 +1752,9 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
 	double ma,mb,mc,md,Ea,Eb,Ec,Ed,dE=5e16;
     double Mmax,Mmin,E0,E1,E2,m0,m1,m2;
     int n, pf;
+	int framenum = 16;
 
-	double RhocFrame[threads], massFrame[threads], RhocGuess[length], massGuess[length];
+	double RhocFrame[framenum], massFrame[framenum], RhocGuess[length], massGuess[length];
 	double tmpMassM0M1[2], tmpRhocE0E1[2];
 
 	ArXiv_t thisArxiv={0};
@@ -1814,18 +1813,18 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
 
 MmaxFound:
 
-	for(n=0;n<threads;n++){
-		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(threads+1);
+	for(n=0;n<framenum;++n){
+		RhocFrame[n]=5e17+(n+1)*(EoS->Rhoc_MmaxSI-5e17)/(framenum+1);
 	}
-	getM_s_mt(massFrame, EoS, RhocFrame, threads, threads);
+	getM_s_mt(massFrame, EoS, RhocFrame, framenum, threads);
 
-	for(n=0;n<threads;n++){
+	for(n=0;n<framenum;++n){
 		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
 	}
 
 	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
-	for(n=0;n<8;n++){
+	for(n=0;n<8;++n){
 		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
 		getM_s_mt(massGuess, EoS, RhocGuess, length, threads);
 		for(pf=0;pf<length;pf++){
