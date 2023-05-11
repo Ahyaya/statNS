@@ -252,9 +252,9 @@ double M2Rhoc_fm(EoS_t *EoS, double fM);
  * new frame to fast convert multiple-mass (array) to Rhoc, with one EoS loaded.
 */
 void setIndex(int *index, int len);
-void rec2arxiv(ArXiv_t *arxiv, double RhocSI, double M);
-int arcSimSort(int head, int tail, int* index, double* data);
-int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length);
+void arxiv_append(ArXiv_t *arxiv, double RhocSI, double M);
+int arxiv_sort(int head, int tail, int* index, double* data);
+int arxiv_interp(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length);
 int getM_fm_mt(double *massArr, EoS_t *EoS, double *RhocSI, int length, int threads);
 int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int threads);
 

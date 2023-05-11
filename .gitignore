@@ -6,3 +6,4 @@ __pycache__/*
 EoS_lib/test_EoSgen.txt
 *.DS_Store
 *.log
+print_*.py

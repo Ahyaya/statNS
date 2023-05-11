@@ -1026,19 +1026,19 @@ double M2Rhoc(EoS_t *EoS, double fM) {
 	getM_s_mt(massFrame, EoS, RhocFrame, threads, threads);
 
 	for(n=0;n<threads;++n){
-		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+		arxiv_append(&thisArxiv, RhocFrame[n], massFrame[n]);
 	}
 
-	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
 	for(n=0;n<8;++n){
-		interp_ArXiv_M2Rhoc_arr(&RhocGuess, &thisArxiv, &fM, 1);
+		arxiv_interp(&RhocGuess, &thisArxiv, &fM, 1);
 		massGuess=getM_s(EoS, RhocGuess);
-		rec2arxiv(&thisArxiv,RhocGuess,massGuess);
-		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+		arxiv_append(&thisArxiv,RhocGuess,massGuess);
+		arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 	}
 
-	interp_ArXiv_M2Rhoc_arr(&RhocGuess, &thisArxiv, &fM, 1);
+	arxiv_interp(&RhocGuess, &thisArxiv, &fM, 1);
 
 	return(RhocGuess);
 }
@@ -1562,14 +1562,14 @@ void setIndex(int *index, int len){
 	return;
 }
 
-void rec2arxiv(ArXiv_t *arxiv, double RhocSI, double M){
+void arxiv_append(ArXiv_t *arxiv, double RhocSI, double M){
 	arxiv->RhocSI[arxiv->length]=RhocSI;
 	arxiv->M[arxiv->length]=M;
 	arxiv->length++;
 	return;
 }
 
-int arcSimSort(int head, int tail, int* index, double* data){
+int arxiv_sort(int head, int tail, int* index, double* data){
     int pf, spf=0, unsort, swap;
     for(unsort=head;unsort<tail+1;unsort++){
         pf=unsort;spf=unsort;
@@ -1584,7 +1584,7 @@ int arcSimSort(int head, int tail, int* index, double* data){
     return 0;
 }
 
-int interp_ArXiv_M2Rhoc_arr(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length) {
+int arxiv_interp(double *RhocGuess, ArXiv_t *Arxiv, double *massArr, int length) {
 	int pf, *mid=Arxiv->index;
 	while(length-- > 0){
 		for(pf=Arxiv->length-1; pf>0; --pf){
@@ -1696,8 +1696,8 @@ int M2Rhoc_Arr_fm(double *RhocSI, EoS_t *EoS, double *massArr, int length, int t
         }
     }
     EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
-    EoS->Mmax=getM_fm(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
-	Mmin=getM_fm(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
+    EoS->Mmax=getM_fm(EoS,EoS->Rhoc_MmaxSI);arxiv_append(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
+	Mmin=getM_fm(EoS,5e17);arxiv_append(&thisArxiv,5e17,Mmin);
 
 MmaxFound:
 
@@ -1707,21 +1707,21 @@ MmaxFound:
 	getM_fm_mt(massFrame, EoS, RhocFrame, framenum, threads);
 
 	for(n=0;n<framenum;++n){
-		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+		arxiv_append(&thisArxiv,RhocFrame[n],massFrame[n]);
 	}
 
-	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
 	for(n=0;n<8;++n){
-		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
+		arxiv_interp(RhocGuess, &thisArxiv, massArr, length);
 		getM_fm_mt(massGuess, EoS, RhocGuess, length, threads);
 		for(pf=0;pf<length;pf++){
-			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
+			arxiv_append(&thisArxiv,RhocGuess[pf],massGuess[pf]);
 		}
-		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+		arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 	}
 
-	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, length);
+	arxiv_interp(RhocSI, &thisArxiv, massArr, length);
 
 	return 0;
 }
@@ -1808,8 +1808,8 @@ int M2Rhoc_Arr_s(double *RhocSI, EoS_t *EoS, double *massArr, int length, int th
         }
     }
     EoS->Rhoc_MmaxSI=(mc-md>0)?(0.5*(Ea+Ed)):(0.5*(Ec+Eb));
-    EoS->Mmax=getM_s(EoS,EoS->Rhoc_MmaxSI);rec2arxiv(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
-	Mmin=getM_s(EoS,5e17);rec2arxiv(&thisArxiv,5e17,Mmin);
+    EoS->Mmax=getM_s(EoS,EoS->Rhoc_MmaxSI);arxiv_append(&thisArxiv,EoS->Rhoc_MmaxSI,EoS->Mmax);
+	Mmin=getM_s(EoS,5e17);arxiv_append(&thisArxiv,5e17,Mmin);
 
 MmaxFound:
 
@@ -1819,21 +1819,21 @@ MmaxFound:
 	getM_s_mt(massFrame, EoS, RhocFrame, framenum, threads);
 
 	for(n=0;n<framenum;++n){
-		rec2arxiv(&thisArxiv,RhocFrame[n],massFrame[n]);
+		arxiv_append(&thisArxiv,RhocFrame[n],massFrame[n]);
 	}
 
-	arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+	arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 
 	for(n=0;n<8;++n){
-		interp_ArXiv_M2Rhoc_arr(RhocGuess, &thisArxiv, massArr, length);
+		arxiv_interp(RhocGuess, &thisArxiv, massArr, length);
 		getM_s_mt(massGuess, EoS, RhocGuess, length, threads);
 		for(pf=0;pf<length;pf++){
-			rec2arxiv(&thisArxiv,RhocGuess[pf],massGuess[pf]);
+			arxiv_append(&thisArxiv,RhocGuess[pf],massGuess[pf]);
 		}
-		arcSimSort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
+		arxiv_sort(0, thisArxiv.length-1, thisArxiv.index, thisArxiv.M);
 	}
 
-	interp_ArXiv_M2Rhoc_arr(RhocSI, &thisArxiv, massArr, length);
+	arxiv_interp(RhocSI, &thisArxiv, massArr, length);
 
 	return 0;
 }
